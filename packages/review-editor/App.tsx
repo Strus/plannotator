@@ -5209,12 +5209,7 @@ const ReviewApp: React.FC = () => {
         throw new Error(`Automatic retry is blocked until the ${mrLabel} is inspected.`);
       }
 
-      const bodyForTarget = (target: SubmissionTarget) => buildPlatformReviewBody(
-        action,
-        prMetadata.platform,
-        generalComment,
-        target,
-      );
+      const bodyForTarget = (target: SubmissionTarget) => buildPlatformReviewBody(generalComment, target);
 
       // For approve, only post to the currently viewed PR.
       // For comment with no targets but a general comment, create a minimal target.

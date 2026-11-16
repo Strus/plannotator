@@ -867,8 +867,8 @@ describe.if(hasDom)("review decision control (platform mode)", () => {
     const posted = submissions.filter((s) => s.endpoint === "pr-action");
     expect(posted).toHaveLength(1);
     expect(posted[0]!.action).toBe("request_changes");
-    // GitHub refuses an empty REQUEST_CHANGES body; inline-only gets the placeholder.
-    expect(posted[0]!.body?.trim()).toBeTruthy();
+    // An inline-only review goes with no body (no "See inline comments."); the server adds one only if GitHub refuses.
+    expect(posted[0]!.body).toBe("");
   });
 
   // The status post that follows a platform submission is the ONLY

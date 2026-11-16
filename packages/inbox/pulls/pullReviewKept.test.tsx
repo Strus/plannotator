@@ -133,7 +133,7 @@ let posted: { path: string; body: Record<string, unknown> }[] = [];
  * line comment on what that commit's diff has at that line. A commit it does not have, or a line not in that commit's
  * diff, refuses the review, as the Inbox's door answers it. So a test reads where the words landed, not what was asked.
  */
-let forge: { commits: Map<string, string>; landed: Landed[]; reviews: { commit: string; action: unknown; body: string }[]; gitlab?: boolean } | null = null;
+let forge: { commits: Map<string, string>; landed: Landed[]; reviews: { commit: string; action: unknown; body: string }[] } | null = null;
 interface Landed {
   commit: string;
   line: number;
@@ -151,8 +151,8 @@ function forgeTakes(body: Record<string, unknown>): Response {
   const gone = () => Response.json({ error: 'The commit you read is no longer on this pull request.', code: 'pull_commit_gone' }, { status: 409 });
   if (patch === undefined) return gone();
   const inline = (body.fileComments ?? []) as { line: number; side: string; body: string }[];
-  // GitHub's docs: COMMENT and REQUEST_CHANGES need a body. Its 422 gives no reason the Inbox can use.
-  if (!forge!.gitlab && body.action !== 'approve' && !String(body.body ?? '').trim()) return Response.json({ error: 'Failed to submit PR review: gh: Validation Failed (HTTP 422)', code: 'pull_review_failed' }, { status: 502 });
+  // A bodyless COMMENT / REQUEST_CHANGES is taken: the server resends it with a pointer body if GitHub refuses it
+  // (submitGhPRReview, pr-github-submit.test.ts), so the page sends no body of its own.
   if (inline.some((c) => codeAt(patch, c.line, c.side) === null)) return gone();
   forge!.reviews.push({ commit, action: body.action, body: String(body.body ?? '') });
   forge!.landed.push(...inline.map((c) => ({ commit, line: c.line, body: c.body, code: codeAt(patch, c.line, c.side) })));
@@ -1234,7 +1234,7 @@ const note = () => document.querySelector('[data-code-annotation-note]')?.textCo
 const TEAMMATE = { mine: false, author: 'tomas' } as const;
 /** A teammate's PR on the small GitHub, a line comment read at A, then a push to B. */
 async function pushedOver(change: () => void, fields: Partial<InboxPull> = TEAMMATE) {
-  forge = { commits: new Map(), landed: [], reviews: [], gitlab: fields.platform === 'gitlab' };
+  forge = { commits: new Map(), landed: [], reviews: [] };
   const { low, top } = layers(fields);
   await open([low, top], top);
   await act(async () => void reader!.comments!.onSave(LINE));
@@ -1627,7 +1627,7 @@ test.skipIf(!hasDom)('Request changes with every comment on an older commit and 
   await act(async () => inDialog('Request Changes').click());
   await settle();
   expect(forge!.reviews.map((r) => [r.action, r.commit])).toEqual([['comment', A], ['request_changes', B]]);
-  expect(forge!.reviews[1]!.body).toBe('See inline comments.');
+  expect(forge!.reviews[1]!.body).toBe(''); // no "See inline comments.": the server adds it only if GitHub refuses
   expect(forge!.landed.map((c) => [c.commit, c.line, c.body])).toEqual([[A, 12, LINE.text]]);
   expect(document.querySelector('[data-pull-review-posted]')?.textContent).toContain('Changes requested on GitHub');
 });

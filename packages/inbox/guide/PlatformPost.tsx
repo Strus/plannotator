@@ -141,7 +141,7 @@ export default function PlatformPost({ pull, open, comments, readComments, ancho
       const partial = from.partial!;
       const { body: owedBody, ...retry } = partial.retry;
       const fileScopedBody = [target.fileScopedBody, ...target.fileLevelComments.map((c) => `**${c.path}:** ${c.body}`)].filter((part) => part.trim()).join('\n\n');
-      const body = buildPlatformReviewBody(retry.action, pull.platform, owedBody !== undefined ? general : '', { ...target, fileScopedBody, fileLevelComments: [] });
+      const body = buildPlatformReviewBody(owedBody !== undefined ? general : '', { fileScopedBody });
       return {
         ...target,
         status: 'partial',
@@ -271,7 +271,7 @@ export default function PlatformPost({ pull, open, comments, readComments, ancho
       const older = plan.targets.filter((target) => !review(target));
       let settled: SubmissionTarget[] = [];
       if (older.length > 0) {
-        const earlier = await submitPlatformReviewTargets({ targets: older, action: 'comment', generalComment: '', bodyForTarget: (target) => buildPlatformReviewBody('comment', pull.platform, '', target), fetchReview });
+        const earlier = await submitPlatformReviewTargets({ targets: older, action: 'comment', generalComment: '', bodyForTarget: (target) => buildPlatformReviewBody('', target), fetchReview });
         settled = earlier.targets;
         const went = noteWent(settled, plan.orphans);
         if (went.length > 0) onWent?.(went);
@@ -308,8 +308,7 @@ export default function PlatformPost({ pull, open, comments, readComments, ancho
         targets,
         action,
         generalComment: general,
-        // A verdict whose line comments all went at an older commit has no thread of its own and still needs a body.
-        bodyForTarget: (target) => buildPlatformReviewBody(action, pull.platform, general, target.fileComments.length > 0 ? target : { ...target, fileComments: older.flatMap((t) => t.fileComments) }),
+        bodyForTarget: (target) => buildPlatformReviewBody(general, target),
         fetchReview,
       });
       if (!attempt.allComplete) {

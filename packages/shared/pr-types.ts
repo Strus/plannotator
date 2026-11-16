@@ -443,8 +443,6 @@ export interface PRPlatformCapabilities {
    * comments) is offered. Off where hosted attachments cannot be fetched.
    */
   artifacts: boolean;
-  /** A COMMENT / REQUEST_CHANGES review needs a non-empty body (GitHub). */
-  reviewBodyRequired: boolean;
   /**
    * Agent jobs can read the PR through a CLI they are allowed to run (gh /
    * glab). When false, agent prompts carry the diff inline instead of relying
@@ -466,7 +464,6 @@ const PLATFORM_CAPABILITIES: Record<Platform, PRPlatformCapabilities> = {
     fileLevelComments: true,
     viewedSync: true,
     artifacts: true,
-    reviewBodyRequired: true,
     agentCliAccess: true,
     cli: { name: "gh", installUrl: "https://cli.github.com" },
   },
@@ -483,7 +480,6 @@ const PLATFORM_CAPABILITIES: Record<Platform, PRPlatformCapabilities> = {
     fileLevelComments: true,
     viewedSync: false,
     artifacts: true,
-    reviewBodyRequired: false,
     agentCliAccess: true,
     cli: { name: "glab", installUrl: "https://gitlab.com/gitlab-org/cli" },
   },
@@ -503,7 +499,6 @@ const PLATFORM_CAPABILITIES: Record<Platform, PRPlatformCapabilities> = {
     // Bitbucket-hosted attachments need the API token, which the artifact
     // fetch path does not carry: no artifacts panel yet.
     artifacts: false,
-    reviewBodyRequired: false,
     agentCliAccess: false,
     cli: null,
   },

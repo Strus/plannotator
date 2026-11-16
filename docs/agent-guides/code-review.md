@@ -148,9 +148,10 @@ Request changes choice (Comment selected) and the empty-state `Request changes�
 Request changes, while the primary `Post Comments` keeps the plain comment flow with no choice.
 `POST /api/pr-action` validates `action` with `parsePRReviewAction` in BOTH runtimes (anything
 else is `400`, never a silent COMMENT), and `submitGhPRReview` maps it to `REQUEST_CHANGES` on the
-single create-review call AND on the pending-review → `/events` submit path (#1600), with the
-same `See inline comments.` placeholder COMMENT gets when the body is empty (GitHub requires a
-body on both). A comment on a whole file goes on GitLab as its own file discussion (`position_type: "file"`, `postGlFileThreads` in `packages/shared/pr-gitlab-file-threads.ts`) before the note; one GitLab refuses (an older GitLab, a renamed file) rides the note as `**path:** text`, as on GitHub, and once a file thread went, a note that fails is a `partial` whose `retry.body` carries it. GitLab posts the note and discussions first, then in one GraphQL request appends you as a reviewer (`mergeRequestSetReviewers`, `APPEND`) and sets the reviewer state with
+single create-review call AND on the pending-review → `/events` submit path (#1600). A review with
+no words of its own goes with no body at all (`buildPlatformReviewBody` adds nothing, and the
+request omits `body`); only if GitHub answers by refusing it (its docs call the body required on
+COMMENT and REQUEST_CHANGES) does `submitGhPRReview` send it once more with `See inline comments.`. A comment on a whole file goes on GitLab as its own file discussion (`position_type: "file"`, `postGlFileThreads` in `packages/shared/pr-gitlab-file-threads.ts`) before the note; one GitLab refuses (an older GitLab, a renamed file) rides the note as `**path:** text`, as on GitHub, and once a file thread went, a note that fails is a `partial` whose `retry.body` carries it. GitLab posts the note and discussions first, then in one GraphQL request appends you as a reviewer (`mergeRequestSetReviewers`, `APPEND`) and sets the reviewer state with
 the `mergeRequestRequestChanges` GraphQL mutation (a failure there is a `partial` whose retry is
 `request_changes` alone). GitLab before 18.9 has no `mergeRequestRequestChanges` and rejects the
 whole request with an `undefinedField` error on it, so nothing changes there: the review stays the
@@ -178,7 +179,7 @@ empty PR list). GitLab's stack walk and MR switcher list are in `packages/shared
 (`merge_requests?source_branch=` up, `target_branch=` down; an opened MR before a merged one, closed skipped),
 and the switcher and stack label number layers with the platform's prefix (`!12`). What the UI shows comes from `getPRPlatformCapabilities` (`packages/shared/pr-types.ts`,
 browser-safe): `requestChanges`, `selfReviewBlocked`, `fileLevelComments`, `viewedSync`, `artifacts`,
-`reviewBodyRequired`, `agentCliAccess`, labels and the CLI. Pure helpers replace the old
+`agentCliAccess`, labels and the CLI. Pure helpers replace the old
 `platform === "github" ? number : iid` ternaries: `getPRNumber`, `getDisplayRepo`, `getPRHeadFetchSpec`
 (where a local checkout fetches the head: `refs/pull/N/head`, `refs/merge-requests/N/head`, or
 Bitbucket's source branch, from the fork URL when `sourceRepo` is set) and `getPRCloneCommand`.

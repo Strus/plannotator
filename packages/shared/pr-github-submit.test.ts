@@ -37,6 +37,12 @@ const isDelete = (c: Call) => c.args[1] === `${REVIEWS}/99` && c.args.includes("
 const isGet = (c: Call) => c.args[1] === `${REVIEWS}/99` && c.args.length === 2;
 
 const PENDING = ok(JSON.stringify({ id: 99, node_id: "PRR_99" }));
+/** GitHub's 422 for a COMMENT / REQUEST_CHANGES review with no body: `gh api` prints the error JSON on stdout. */
+const REFUSED_BLANK: CommandResult = {
+  stdout: JSON.stringify({ message: "Unprocessable Entity", errors: ["Body is required"] }),
+  stderr: "gh: Unprocessable Entity (HTTP 422)",
+  exitCode: 1,
+};
 const THREAD_OK = ok(JSON.stringify({ data: { addPullRequestReviewThread: { thread: { id: "PRRT_1" } } } }));
 
 let errorSpy: ReturnType<typeof spyOn>;
@@ -138,14 +144,26 @@ describe("submitGhPRReview file-level edge cases", () => {
     expect(calls).toHaveLength(1); // no second review posted on top of it
   });
 
-  test("a COMMENT with an empty body gets the placeholder body GitHub requires", async () => {
+  test("a COMMENT with an empty body is submitted with no body", async () => {
     const { runtime, calls } = ghRuntime((c) => {
       if (isCreate(c)) return PENDING;
       if (isGraphql(c)) return THREAD_OK;
       if (isSubmit(c)) return ok("{}");
     });
     await submitGhPRReview(runtime, REF, "sha", "comment", "  ", [], [FILE_A]);
-    expect(calls.find(isSubmit)!.input).toEqual({ event: "COMMENT", body: "See inline comments." });
+    expect(calls.filter(isSubmit).map((c) => c.input)).toEqual([{ event: "COMMENT" }]);
+  });
+
+  test("a bodyless submit GitHub refuses goes once more with the placeholder body", async () => {
+    let submits = 0;
+    const { runtime, calls } = ghRuntime((c) => {
+      if (isCreate(c)) return PENDING;
+      if (isGraphql(c)) return THREAD_OK;
+      if (isSubmit(c)) return ++submits === 1 ? REFUSED_BLANK : ok("{}");
+    });
+    await expect(submitGhPRReview(runtime, REF, "sha", "comment", "", [], [FILE_A])).resolves.toEqual({ status: "complete" });
+    expect(calls.filter(isSubmit).map((c) => c.input)).toEqual([{ event: "COMMENT" }, { event: "COMMENT", body: "See inline comments." }]);
+    expect(calls.some(isDelete)).toBe(false);
   });
 
   test("a submit whose response was lost but which GitHub shows as submitted is a success", async () => {
@@ -254,7 +272,7 @@ describe("request_changes review event (#1611)", () => {
     expect(calls[0].input).toEqual({ commit_id: "sha", body: "Please fix", event: "REQUEST_CHANGES", comments: [LINE] });
   });
 
-  test("pending review path: submits REQUEST_CHANGES, with the placeholder body GitHub requires when empty", async () => {
+  test("pending review path: submits REQUEST_CHANGES, with no body when empty", async () => {
     const { runtime, calls } = ghRuntime((c) => {
       if (isCreate(c)) return PENDING;
       if (isGraphql(c)) return THREAD_OK;
@@ -262,7 +280,29 @@ describe("request_changes review event (#1611)", () => {
     });
     await submitGhPRReview(runtime, REF, "sha", "request_changes", "", [LINE], [FILE_A]);
     expect(calls.find(isCreate)!.input.event).toBeUndefined(); // still pending until submit
-    expect(calls.find(isSubmit)!.input).toEqual({ event: "REQUEST_CHANGES", body: "See inline comments." });
+    expect(calls.filter(isSubmit).map((c) => c.input)).toEqual([{ event: "REQUEST_CHANGES" }]);
+  });
+
+  test("single call: an inline-only review goes with no body", async () => {
+    const { runtime, calls } = ghRuntime((c) => (isCreate(c) ? ok("{}") : undefined));
+    await submitGhPRReview(runtime, REF, "sha", "request_changes", "  ", [LINE]);
+    expect(calls.map((c) => c.input)).toEqual([{ commit_id: "sha", event: "REQUEST_CHANGES", comments: [LINE] }]);
+  });
+
+  test("single call: a bodyless review GitHub refuses goes once more with the placeholder body", async () => {
+    let posts = 0;
+    const { runtime, calls } = ghRuntime((c) => (isCreate(c) ? (++posts === 1 ? REFUSED_BLANK : ok("{}")) : undefined));
+    await expect(submitGhPRReview(runtime, REF, "sha", "request_changes", "", [])).resolves.toEqual({ status: "complete" });
+    expect(calls.map((c) => c.input)).toEqual([
+      { commit_id: "sha", event: "REQUEST_CHANGES", comments: [] },
+      { commit_id: "sha", body: "See inline comments.", event: "REQUEST_CHANGES", comments: [] },
+    ]);
+  });
+
+  test("single call: a failure GitHub did not answer is not sent again", async () => {
+    const { runtime, calls } = ghRuntime((c) => (isCreate(c) ? fail("connection reset") : undefined));
+    await expect(submitGhPRReview(runtime, REF, "sha", "comment", "", [LINE])).rejects.toThrow("connection reset");
+    expect(calls).toHaveLength(1);
   });
 
   test("the pending-create fallback keeps REQUEST_CHANGES", async () => {

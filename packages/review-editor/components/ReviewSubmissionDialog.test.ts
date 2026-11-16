@@ -16,39 +16,15 @@ const inlineComment: SubmissionTarget['fileComments'][number] = {
 
 describe('buildPlatformReviewBody', () => {
   test('contains only user-authored top-level feedback when present', () => {
-    expect(buildPlatformReviewBody('comment', 'github', 'Overall feedback', {
-      fileComments: [inlineComment],
+    expect(buildPlatformReviewBody('Overall feedback', {
       fileScopedBody: '**src/example.ts:** File-level feedback',
     })).toBe('Overall feedback\n\n**src/example.ts:** File-level feedback');
   });
 
-  test('uses a neutral GitHub body for an inline-only comment review', () => {
-    expect(buildPlatformReviewBody('comment', 'github', '   ', {
-      fileComments: [inlineComment],
-      fileScopedBody: '',
-    })).toBe('See inline comments.');
-  });
-
-  test('does not manufacture a GitLab note for inline-only comments', () => {
-    expect(buildPlatformReviewBody('comment', 'gitlab', undefined, {
-      fileComments: [inlineComment],
-      fileScopedBody: '',
-    })).toBe('');
-  });
-
-  // #1611: GitHub requires a body on REQUEST_CHANGES exactly like COMMENT.
-  test('uses the same neutral GitHub body for an inline-only request-changes review', () => {
-    expect(buildPlatformReviewBody('request_changes', 'github', '', {
-      fileComments: [inlineComment],
-      fileScopedBody: '',
-    })).toBe('See inline comments.');
-  });
-
-  test('does not manufacture an approval body', () => {
-    expect(buildPlatformReviewBody('approve', 'github', undefined, {
-      fileComments: [inlineComment],
-      fileScopedBody: '',
-    })).toBe('');
+  // An inline-only review carries no "See inline comments." body.
+  test('an inline-only review has an empty body', () => {
+    expect(buildPlatformReviewBody('   ', { fileScopedBody: '' })).toBe('');
+    expect(buildPlatformReviewBody(undefined, { fileScopedBody: '' })).toBe('');
   });
 });
 
@@ -291,14 +267,6 @@ describe('file-scoped comments on GitHub (#1599)', () => {
       expect(target.fileScopedBody).toContain('**src/a.ts:** Split this file.');
       expect(target.fileScopedBody).toContain('**src/a.ts:** Wrong directory.');
     }
-  });
-
-  test('a GitHub COMMENT with only file-level comments still carries a body', () => {
-    expect(buildPlatformReviewBody('comment', 'github', '', {
-      fileComments: [],
-      fileLevelComments: [{ path: 'src/a.ts', body: 'Split this file.' }],
-      fileScopedBody: '',
-    })).toBe('See inline comments.');
   });
 
   test('the request carries file-level comments; a narrowed retry never resends them', () => {

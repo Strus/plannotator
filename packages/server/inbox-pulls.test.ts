@@ -2279,7 +2279,7 @@ describe("Post to GitHub/GitLab (the owner's answer C: the person chooses at the
     await w.pulls();
     const one = { path: "src/retry.ts", line: 12, side: "RIGHT", body: "Cap the backoff." };
     const two = { path: "src/retry.ts", line: 20, side: "RIGHT", body: "Log the attempt." };
-    const review = { key: PR412, head_sha: SHA412, action: "comment", body: "See inline comments." };
+    const review = { key: PR412, head_sha: SHA412, action: "comment", body: "" };
     expect((await w.review({ ...review, fileComments: [one] })).status).toBe(200);
     expect((await w.review({ ...review, fileComments: [two] })).status).toBe(200);
     expect(w.post.calls).toHaveLength(2);

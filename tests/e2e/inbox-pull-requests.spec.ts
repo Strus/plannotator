@@ -2920,7 +2920,7 @@ test('a saved line comment over a push: labelled, posted at the commit read, the
 
     const sent = readFileSync(join(world.forge, 'gh-posts.jsonl'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>);
     expect(sent).toEqual([
-      { commit_id: read, body: 'See inline comments.', event: 'COMMENT', comments: [{ path: 'src/settings/Layout.tsx', line: 3, side: 'RIGHT', body: words }] },
+      { commit_id: read, event: 'COMMENT', comments: [{ path: 'src/settings/Layout.tsx', line: 3, side: 'RIGHT', body: words }] },
       expect.objectContaining({ commit_id: pushed, body: 'Everything else reads well.', event: 'COMMENT' }),
     ]);
     expect((sent[1] as { comments?: unknown[] }).comments ?? []).toEqual([]);

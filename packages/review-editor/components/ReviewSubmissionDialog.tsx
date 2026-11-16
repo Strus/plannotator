@@ -246,11 +246,6 @@ function buildFailedCommentsMarkdown(
     .join('\n\n');
 }
 
-/**
- * Build the top-level review body without adding product attribution.
- * GitHub requires a body for COMMENT and REQUEST_CHANGES reviews, so an inline-only review gets a
- * neutral pointer. Approvals and GitLab discussions can remain bodyless.
- */
 /** What a narrowed retry will send, for the partial-submission notice. */
 export function describePartialRetry(partial: PRReviewSubmissionPartial, mrLabel: string): string {
   const { retry } = partial;
@@ -269,23 +264,18 @@ export function describePartialRetry(partial: PRReviewSubmissionPartial, mrLabel
   return `Retry sends only ${what}; ${notAgain}`;
 }
 
+/**
+ * The top-level review body: only what the reviewer wrote (their general comment and the file-scoped
+ * section). An inline-only review goes bodyless, with no product attribution and no "See inline comments."
+ */
 export function buildPlatformReviewBody(
-  action: PRReviewAction,
-  platform: ReviewPlatform,
   generalComment: string | undefined,
-  target: Pick<SubmissionTarget, 'fileComments' | 'fileScopedBody'> & Partial<Pick<SubmissionTarget, 'fileLevelComments'>>,
+  target: Pick<SubmissionTarget, 'fileScopedBody'>,
 ): string {
   const parts: string[] = [];
   if (generalComment?.trim()) parts.push(generalComment);
   if (target.fileScopedBody.trim()) parts.push(target.fileScopedBody);
-
-  if (parts.length > 0) return parts.join('\n\n');
-  const threadCount = target.fileComments.length + (target.fileLevelComments?.length ?? 0);
-  // GitHub requires a body on COMMENT and REQUEST_CHANGES reviews alike.
-  if (action !== 'approve' && getPRPlatformCapabilities({ platform }).reviewBodyRequired && threadCount > 0) {
-    return 'See inline comments.';
-  }
-  return '';
+  return parts.join('\n\n');
 }
 
 /**

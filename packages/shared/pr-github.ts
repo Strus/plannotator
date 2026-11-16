@@ -861,7 +861,10 @@ const ADD_FILE_THREAD_MUTATION = `mutation($reviewId: ID!, $path: String!, $body
 const PENDING_REVIEW_REMAINS =
   "A pending review remains on the pull request; submit or discard it on GitHub before retrying.";
 
-/** GitHub requires a body on a COMMENT or REQUEST_CHANGES review; the client uses the same placeholder. */
+/**
+ * Sent only when GitHub refuses a bodyless COMMENT or REQUEST_CHANGES review (its docs call the body required
+ * there). A review goes without a body first: its inline comments speak for themselves.
+ */
 const COMMENT_BODY_PLACEHOLDER = "See inline comments.";
 
 const MAX_ERROR_DETAIL = 300;
@@ -951,13 +954,21 @@ export async function submitGhPRReview(
   const api = (endpoint: string, method: string, input: unknown) =>
     run("gh", hostnameArgs(ref.host, ["api", endpoint, "--method", method, "--input", "-"]), JSON.stringify(input));
 
+  const withBody = (reviewBody: string) => (reviewBody.trim().length > 0 ? { body: reviewBody } : {});
+  // GitHub answered and refused a bodyless review (nothing was created, or the pending review is still pending):
+  // the same review goes once more with the placeholder body.
+  const refusedBodyless = (reviewBody: string, result: CommandResult) =>
+    result.exitCode !== 0 && event !== "APPROVE" && reviewBody.trim().length === 0 && githubErrorDetail(result.stdout) !== undefined;
+
   const submitAtomic = async (reviewBody: string): Promise<PRReviewSubmissionResult> => {
-    const result = await api(reviewsEndpoint, "POST", {
+    const send = (b: string) => api(reviewsEndpoint, "POST", {
       commit_id: headSha,
-      body: reviewBody,
+      ...withBody(b),
       event,
       comments: fileComments,
     });
+    let result = await send(reviewBody);
+    if (refusedBodyless(reviewBody, result)) result = await send(COMMENT_BODY_PLACEHOLDER);
     if (result.exitCode !== 0) {
       throw new Error(`Failed to submit PR review: ${commandError(result)}`);
     }
@@ -1025,12 +1036,10 @@ export async function submitGhPRReview(
   }
 
   // 3. Submit. On failure discard the pending review so a retry starts clean.
-  let submitBody = foldFileLevelComments(body, folded);
-  if (event !== "APPROVE" && submitBody.trim().length === 0) submitBody = COMMENT_BODY_PLACEHOLDER;
-  const submitted = await api(`${reviewsEndpoint}/${reviewId}/events`, "POST", {
-    event,
-    body: submitBody,
-  });
+  const submitBody = foldFileLevelComments(body, folded);
+  const submit = (b: string) => api(`${reviewsEndpoint}/${reviewId}/events`, "POST", { event, ...withBody(b) });
+  let submitted = await submit(submitBody);
+  if (refusedBodyless(submitBody, submitted)) submitted = await submit(COMMENT_BODY_PLACEHOLDER);
   if (submitted.exitCode !== 0) {
     const message = commandError(submitted);
     // The submit may have landed with only its response lost; never delete or
