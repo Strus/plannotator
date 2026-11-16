@@ -276,7 +276,7 @@ export const ReviewAllFilesDiffPanel: React.FC<IDockviewPanelProps> = () => {
     <>
     <AllFilesCodeView
       files={state.files}
-      {...(state.callTreeHunkNotes && state.callTreeHunkNotes.length > 0 ? { hostLineNotes: state.callTreeHunkNotes } : {})}
+      {...(state.hostLineNotes && state.hostLineNotes.length > 0 ? { hostLineNotes: state.hostLineNotes } : {})}
       diffStyle={paneDiffStyle}
       diffOverflow={state.diffOverflow}
       diffIndicators={state.diffIndicators}

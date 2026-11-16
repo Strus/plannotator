@@ -333,8 +333,11 @@ export interface ReviewState {
   openCallFlowPanel: () => void;
   /** Opt-in runtime install controller backing the Dock's install funnel. */
   callFlowInstall: CallFlowInstallController;
-  /** The "Call tree" entries drawn on hunks (empty unless Call flow has a tree for them). Optional: other hosts draw none. */
-  callTreeHunkNotes?: readonly HostLineNote[];
+  /**
+   * What the host draws under lines (hostLineNotes.ts): the PR's existing review threads and the "Call tree" entries
+   * on hunks. Optional: other hosts draw none.
+   */
+  hostLineNotes?: readonly HostLineNote[];
   /** The tree a hunk's "Call tree" entry opened, shown by the Call flow tab; bumps `token` per open. */
   callTreeRequest?: CallTreeRequest | null;
   /** Open a Call tree row's line: the diff when the line is in it, else the file's whole-file view. */

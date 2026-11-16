@@ -104,6 +104,9 @@ import { extractLinesFromPatch, isLineRangeInPatch } from './utils/patchParser';
 import { resolveCallFlowAnnotationPlacement } from './utils/callFlowAnnotations';
 import { callTreeHunkTargets as callTreeHunkTargetsFor, type CallTreeHunkTarget } from './utils/callTreeHunks';
 import { CallTreeHunkEntry } from './components/callTree/CallTreeHunkEntry';
+import { PRLineThread, PRThreadMemory } from './components/PRLineThread';
+import { placePRThreads, placedPRThreadKey } from './utils/prLineThreads';
+import { proxiesGitHubImages } from './utils/prImage';
 import { selectionForCallFlowNode } from './components/CallFlowTreeView';
 import type { HostLineNote } from './components/hostLineNotes';
 import { useLiveReview } from './live/useLiveReview';
@@ -3086,6 +3089,27 @@ const ReviewApp: React.FC = () => {
     key: `${target.doc.rootPath}|${target.doc.title}`,
     render: () => <CallTreeHunkEntry title={target.doc.title} onOpen={() => openCallTreeForHunk(target)} />,
   })), [callTreeHunkTargets, openCallTreeForHunk]);
+  // The PR's existing review threads, under the lines they are about. Only on the PR's own diff (layer or Whole
+  // stack): a single commit's diff numbers its lines otherwise.
+  const prThreadMemory = useRef(new PRThreadMemory()).current;
+  const prThreadNotes = useMemo<HostLineNote[]>(() => {
+    const threads = prContext?.reviewThreads;
+    if (!prMetadata || !threads?.length || isCommitDiffType(diffType)) return [];
+    const forge = prMetadata.platform === 'gitlab' ? 'GitLab' : prMetadata.platform === 'bitbucket' ? 'Bitbucket' : 'GitHub';
+    const authenticatedImages = proxiesGitHubImages(prMetadata);
+    return placePRThreads(threads, files, prDiffScope).map((placed) => ({
+      id: `pr-thread:${placed.thread.id}`,
+      filePath: placed.filePath,
+      line: placed.line,
+      side: placed.side,
+      key: placedPRThreadKey(placed),
+      render: () => <PRLineThread placed={placed} memory={prThreadMemory} forge={forge} authenticatedImages={authenticatedImages} />,
+    }));
+  }, [prContext?.reviewThreads, prMetadata, files, prDiffScope, diffType, prThreadMemory]);
+  const hostLineNotes = useMemo<HostLineNote[]>(
+    () => (prThreadNotes.length === 0 ? callTreeHunkNotes : callTreeHunkNotes.length === 0 ? prThreadNotes : [...prThreadNotes, ...callTreeHunkNotes]),
+    [prThreadNotes, callTreeHunkNotes],
+  );
   const clearCallTreeRequest = useCallback(() => setCallTreeRequest(null), []);
   // A new analysis (another snapshot, a retry) draws new trees: drop a tree cut from the old one.
   useEffect(() => setCallTreeRequest(null), [callFlowAnalysis]);
@@ -3385,7 +3409,7 @@ const ReviewApp: React.FC = () => {
     () => [...(liveReview.tab ? [liveReview.tab] : []), ...(referencesTab ? [referencesTab] : [])],
     [liveReview.tab, referencesTab],
   );
-  const hostNotes = useMemo(() => (liveReview.notes.length > 0 ? [...callTreeHunkNotes, ...liveReview.notes] : callTreeHunkNotes), [callTreeHunkNotes, liveReview.notes]);
+  const hostNotes = useMemo(() => (liveReview.notes.length > 0 ? [...hostLineNotes, ...liveReview.notes] : hostLineNotes), [hostLineNotes, liveReview.notes]);
 
   // Handle identity change - update author on existing annotations
   const handleIdentityChange = useCallback((oldIdentity: string, newIdentity: string) => {
@@ -4766,7 +4790,7 @@ const ReviewApp: React.FC = () => {
     isCallFlowActive,
     openCallFlowPanel,
     callFlowInstall,
-    callTreeHunkNotes: hostNotes,
+    hostLineNotes: hostNotes,
     callTreeRequest,
     openCallTreeNode,
     returnFromCallTree,

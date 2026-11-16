@@ -166,7 +166,7 @@ export const ReviewDiffBody: React.FC<{
         patch={file.patch}
         filePath={file.path}
         oldPath={file.oldPath}
-        hostLineNotes={state.callTreeHunkNotes}
+        hostLineNotes={state.hostLineNotes}
         status={file.status}
         reviewBase={state.reviewBase}
         reviewSnapshotId={state.feedbackDiffContext?.snapshotId}
