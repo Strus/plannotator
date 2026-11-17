@@ -69,15 +69,14 @@ function hoverEmittedMix(finalShare: number, keep: number): string {
 }
 
 /**
- * At 1.2.12 Pierre's own per-selector hover rules gave changed lines these
- * final bg shares (deletion 80/75, addition 80/70). `subtle` rode them
- * untouched; 1.3.x's central hover rule instead lands at ~85.4 light /
- * ~72.8 dark, a visibly weaker light-theme hover. We pin the old finals so
- * `subtle` hover looks the same before and after the upgrade.
+ * `subtle` bg shares, per line type. Pierre's own 88 / 80 read too faint.
+ * Additions sit about halfway from there toward `normal`'s 55 / 45, with the
+ * hover gap Pierre 1.2.12 had (-8 / -10). Deletions use `normal`'s values
+ * outright, so removed lines stand out more than added ones.
  */
-const SUBTLE_HOVER_FINALS = {
-  deletion: { light: 80, dark: 75 },
-  addition: { light: 80, dark: 70 },
+const SUBTLE_CONFIG: Record<'addition' | 'deletion', IntensityConfig> = {
+  addition: { restMixLight: 72, restMixDark: 62, hoverMixLight: 64, hoverMixDark: 52 },
+  deletion: INTENSITY_CONFIG.normal,
 };
 
 /**
@@ -99,10 +98,9 @@ const EMPHASIS_LIGHTNESS_SHIFT = 0.07;
  * from the resolved theme tokens (`--diffs-addition-base` /
  * `--diffs-deletion-base`) — themes that customize diff colours keep them.
  *
- * `subtle` keeps Pierre's default line bg (its faint mix + alpha-overlay
- * emphasis is exactly what Pierre's design intends), but still emits the
- * "hide emphasis when diff bg is off" rule so that toggle behaves consistently
- * at every intensity.
+ * `subtle` uses its own per line type mix (SUBTLE_CONFIG) and keeps Pierre's
+ * alpha-overlay word emphasis. It still emits the "hide emphasis when diff bg
+ * is off" rule so that toggle behaves consistently at every intensity.
  */
 export function buildLineBgOverrides(intensity: DiffLineBgIntensity, mode: 'light' | 'dark'): string {
   // The library's word-emphasis rule (`[data-line-type=…] [data-diff-span] {
@@ -134,20 +132,24 @@ export function buildLineBgOverrides(intensity: DiffLineBgIntensity, mode: 'ligh
     "[data-background] :is([data-line-type='change-addition'], [data-line-type='change-deletion'])" +
     ":is([data-line], [data-no-newline])";
   if (intensity === 'subtle') {
-    // Keep Pierre's rest bg untouched, but pin the hovered finals to the
-    // 1.2.x values (see SUBTLE_HOVER_FINALS). Per-type split preserved:
-    // 1.2.x deletion hover was 80/75, addition 80/70.
-    const del = SUBTLE_HOVER_FINALS.deletion;
-    const add = SUBTLE_HOVER_FINALS.addition;
+    // Per line type rest and hovered shares (SUBTLE_CONFIG). The word chips
+    // keep Pierre's alpha-overlay emphasis.
+    const lineRules = (['addition', 'deletion'] as const).map((type) => {
+      const cfg = SUBTLE_CONFIG[type];
+      const line = `[data-background] [data-line-type='change-${type}']:is([data-line], [data-no-newline])`;
+      return `
+        ${line}:not([data-hovered]) {
+          --mix-light: ${cfg.restMixLight}%;
+          --mix-dark: ${cfg.restMixDark}%;
+        }
+        ${line}[data-hovered] {
+          --mix-light: ${hoverEmittedMix(cfg.hoverMixLight, PIERRE_HOVER_KEEP_LIGHT)}%;
+          --mix-dark: ${hoverEmittedMix(cfg.hoverMixDark, PIERRE_HOVER_KEEP_DARK)}%;
+        }
+      `;
+    }).join('');
     return `
-      [data-background] [data-line-type='change-deletion']:is([data-line], [data-no-newline])[data-hovered] {
-        --mix-light: ${hoverEmittedMix(del.light, PIERRE_HOVER_KEEP_LIGHT)}%;
-        --mix-dark: ${hoverEmittedMix(del.dark, PIERRE_HOVER_KEEP_DARK)}%;
-      }
-      [data-background] [data-line-type='change-addition']:is([data-line], [data-no-newline])[data-hovered] {
-        --mix-light: ${hoverEmittedMix(add.light, PIERRE_HOVER_KEEP_LIGHT)}%;
-        --mix-dark: ${hoverEmittedMix(add.dark, PIERRE_HOVER_KEEP_DARK)}%;
-      }
+      ${lineRules}
       ${hideEmphasisWithoutBg}
     `;
   }
