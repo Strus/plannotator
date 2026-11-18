@@ -4,6 +4,8 @@
 // dictionary lazily for hosts: math is typeset on the first commit and names
 // come from the full dictionary. Guarded by tests/entry-assets.test.ts; do not
 // drop or reorder either line.
+import { getReviewFileOrder } from './utils/fileKindTree';
+import { LINE_CURSOR_CAPTURE, lineCursorKey, requestCursorEntry } from './utils/lineCursor';
 import '@plannotator/ui/utils/math-eager';
 import '@plannotator/ui/utils/identity-tater';
 import { primeImageSizes, type ImageSizes } from './components/image-diff/imageSizes';
@@ -5568,6 +5570,23 @@ const ReviewApp: React.FC = () => {
       },
     },
   });
+
+  // PR Overview: J opens the first file of the left panel's list with the
+  // line cursor on its first line (lineCursor.ts); the diff then owns J / K.
+  useEffect(() => {
+    if (!isPROverviewActive || files.length === 0) return;
+    const handler = (e: KeyboardEvent) => {
+      if (lineCursorKey(e) !== 'next' || !canHandleExplorerKey(e)) return;
+      const order = getReviewFileOrder(files, allFilesOrder, allFilesOrder === 'kind' ? generatedFiles : undefined);
+      const first = files[order[0]];
+      if (!first) return;
+      e.preventDefault();
+      requestCursorEntry(first.path, 'first');
+      openDiffFile(first.path);
+    };
+    window.addEventListener('keydown', handler, LINE_CURSOR_CAPTURE);
+    return () => window.removeEventListener('keydown', handler, LINE_CURSOR_CAPTURE);
+  }, [isPROverviewActive, files, allFilesOrder, generatedFiles, canHandleExplorerKey, openDiffFile]);
 
   // Cmd/Ctrl+Enter keyboard shortcut to approve or send feedback
   useEffect(() => {

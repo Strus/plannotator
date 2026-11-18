@@ -38,14 +38,13 @@ import { POWER_UP_PERIOD_MS, POWER_UP_ROW, powerUpCss } from '../semDiff/powerUp
 import { SemanticFileNote, type SemanticFileState } from '../semDiff/SemanticFileNote';
 import type { DiffFile, AnnotationScrollTarget } from '../types';
 import type { MarkdownFileView } from '../utils/markdownPreview';
-import { buildFileTree, getVisualFileOrder } from '../utils/buildFileTree';
 import { keepArrowClicks } from '../utils/keepArrowClicks';
 import { joinReading, type Reading } from '../utils/readingEngaged';
 import { scrollWithPage, type PageScroll } from '../utils/scrollWithPage';
 import { newLineOf } from '../utils/newLineOf';
 import { fileKind } from '@plannotator/core/file-kind';
 import { packageFileKind } from '@plannotator/core/package-changes';
-import { getFileKindOrder } from '../utils/fileKindTree';
+import { getReviewFileOrder } from '../utils/fileKindTree';
 import { buildCodeNavRequest } from '../utils/buildCodeNavRequest';
 import { getDiffSelection, getLineNumberFromNode, getSideFromNode, snapshotDiffSelection, rangeForGutterClick, type DiffSelectionSnapshot } from '../utils/diffSelection';
 import { isContentConsistentWithPatch } from '../utils/patchConsistency';
@@ -55,6 +54,25 @@ import {
   resolveLineSelectionBehavior,
   type LineSelectionSource,
 } from '../utils/lineSelectionBehavior';
+import {
+  composerPositionFor,
+  cursorRowSelector,
+  findCursorIndex,
+  lineCursorKey,
+  listCursorLines,
+  listCursorStops,
+  rangeOfLineStop,
+  carryCursor,
+  halfPageStops,
+  renderedRowHeight,
+  stepCursor,
+  toCursorRange,
+  LINE_CURSOR_CAPTURE,
+  type CursorPosition,
+  type CursorRange,
+  type CursorStop,
+} from '../utils/lineCursor';
+import type { KeyboardComposeOptions } from '../hooks/useAnnotationToolbar';
 import {
   changeJumpDirection,
   findChangeElement,
@@ -107,6 +125,7 @@ import type { SemanticDiffOperation } from '@plannotator/sem-jiff';
 import {
   applyItemSearchHighlights,
   clearItemSearchHighlights,
+  getSearchRoots,
   swapActiveSearchHighlight,
 } from '../utils/reviewSearchHighlight';
 
@@ -1125,6 +1144,8 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
   // A range whose toolbar must open only after the ToolbarHost remounts against
   // the newly-activated file (its patch/filePath props changed this render).
   const pendingToolbarRange = useRef<SelectedLineRange | null>(null);
+  /** A range the line cursor (`I` / `Enter`) asked a composer for, deferred like the one above. */
+  const pendingToolbarKeyboard = useRef<{ range: CursorRange; keyboard: KeyboardComposeOptions } | null>(null);
 
   // File-scoped comment popover anchor (P3). Anchored by the FileHeader button
   // ref handed through the render slot — NOT by querying the recycled/portaled
@@ -1159,10 +1180,7 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
     [kindOrderGenerated],
   );
   const visualOrder = useMemo(() => {
-    if (fileOrder === 'list') return files.map((_, index) => index);
-    if (fileOrder === 'kind') return getFileKindOrder(files, kindOrderGenerated);
-    const tree = buildFileTree(files);
-    return getVisualFileOrder(tree);
+    return getReviewFileOrder(files, fileOrder, kindOrderGenerated);
     // The generated set is content-keyed (kindOrderKey): an equal set from a
     // refreshed payload must not reorder or remount anything.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1476,6 +1494,13 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
   // a patch-only dependency would never flush, silently swallowing the
   // selection.
   useEffect(() => {
+    const keyboardRequest = pendingToolbarKeyboard.current;
+    if (keyboardRequest && activePatch) {
+      pendingToolbarKeyboard.current = null;
+      pendingToolbarRange.current = null;
+      toolbarHostRef.current?.openLineAnnotation(keyboardRequest.range, keyboardRequest.keyboard);
+      return;
+    }
     if (pendingToolbarRange.current && activePatch) {
       toolbarHostRef.current?.handleLineSelectionEnd(pendingToolbarRange.current);
       pendingToolbarRange.current = null;
@@ -3761,6 +3786,241 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
     return true;
   });
 
+  // J / K: the line cursor across the expanded files (lineCursor.ts). Its
+  // position is what the view highlights (the active file's selected range,
+  // else a selected comment); a file's stops come from its CodeView item, so
+  // a file off screen still has them.
+  const lastCursorRef = useRef<{ itemId: string; stop: CursorStop } | null>(null);
+  const cursorStopsOf = useStableCallback((itemId: string): CursorStop[] | null => {
+    const handle = viewerRef.current;
+    const item = handle?.getItem(itemId);
+    if (item == null || item.type !== 'diff' || item.collapsed === true) return null;
+    if (previewItemIdsRef.current.has(itemId) || itemId === editSession.editingItemIdRef.current) return null;
+    const filePath = itemIdToFilePath.get(itemId);
+    if (!filePath) return null;
+    const fileAnnotations = annotationsRef.current.filter(
+      (a) => a.filePath === filePath && (a.scope ?? 'line') === 'line' && !a.markdownPreview && annotationMatchesPrScope(a, prUrl, prDiffScope),
+    );
+    return listCursorStops(listCursorLines(item.fileDiff, expandUnchanged), fileAnnotations);
+  });
+
+  const renderedItemElement = useStableCallback((itemId: string): HTMLElement | null => {
+    const viewer = viewerRef.current?.getInstance();
+    const rendered = viewer?.getRenderedItems().find((candidate: { id: string }) => candidate.id === itemId);
+    return (rendered?.element as HTMLElement | null | undefined) ?? null;
+  });
+
+  const cursorElementOf = useStableCallback((itemId: string, stop: CursorStop): HTMLElement | null => {
+    const element = renderedItemElement(itemId);
+    if (element == null) return null;
+    if (stop.kind === 'comment') {
+      const el = element.querySelector(`[data-annotation-id="${stop.annotationId}"]`);
+      return el instanceof HTMLElement ? el : null;
+    }
+    const selector = `[data-line-type]${cursorRowSelector(stop)}`;
+    for (const root of getSearchRoots(element)) {
+      const el = (root as ParentNode).querySelector?.(selector);
+      if (el instanceof HTMLElement) return el;
+    }
+    return null;
+  });
+
+  // Keep the stop on screen with a few rows of room; a row CodeView has not
+  // rendered yet is brought in by its line.
+  const revealCursorStop = useStableCallback((itemId: string, stop: CursorStop) => {
+    const handle = viewerRef.current;
+    const viewer = handle?.getInstance();
+    if (handle == null || viewer == null) return;
+    const container = viewer.getContainerElement() ?? scrollRef.current;
+    const el = cursorElementOf(itemId, stop);
+    if (container == null || el == null) {
+      handle.scrollTo({ type: 'line', id: itemId, lineNumber: stop.lineNumber, side: stop.side, align: 'center' });
+      return;
+    }
+    const view = container.getBoundingClientRect();
+    const rect = el.getBoundingClientRect();
+    const margin = Math.min(72, view.height / 4);
+    let delta = 0;
+    if (rect.top < view.top + margin) delta = rect.top - (view.top + margin);
+    else if (rect.bottom > view.bottom - margin) delta = rect.bottom - (view.bottom - margin);
+    if (delta !== 0) handle.scrollTo({ type: 'position', position: Math.max(0, viewer.getScrollTop() + delta) });
+  });
+
+  const paintCursorStop = useStableCallback((itemId: string, stop: CursorStop) => {
+    lastCursorRef.current = { itemId, stop };
+    const filePath = itemIdToFilePath.get(itemId);
+    if (!filePath) return;
+    if (stop.kind === 'line') {
+      const range = rangeOfLineStop(stop);
+      if (activeFilePathRef.current !== filePath) setActiveFilePath(filePath);
+      setSelectedLines({ id: itemId, range });
+      if (selectedAnnotationIdRef.current) onSelectAnnotation(null);
+      onLineSelection(range);
+    } else {
+      if (pendingSelectionRef.current) onLineSelection(null);
+      if (selectedAnnotationIdRef.current !== stop.annotationId) onSelectAnnotation(stop.annotationId);
+    }
+    revealCursorStop(itemId, stop);
+  });
+
+  // Where the cursor is now: the item and the highlighted range or comment.
+  const currentCursor = useStableCallback((): { itemId: string; position: CursorPosition } | null => {
+    const pending = pendingSelectionRef.current;
+    const activePath = activeFilePathRef.current;
+    if (pending && activePath) {
+      const itemId = filePathToItemId.get(activePath);
+      if (itemId != null) return { itemId, position: { kind: 'range', range: toCursorRange(pending) } };
+    }
+    const selectedId = selectedAnnotationIdRef.current;
+    const ann = selectedId ? annotationsRef.current.find((a) => a.id === selectedId) : null;
+    if (ann && !isFileScopedAnnotation(ann)) {
+      const itemId = filePathToItemId.get(ann.filePath);
+      if (itemId != null) return { itemId, position: { kind: 'comment', annotationId: ann.id } };
+    }
+    return null;
+  });
+
+  // With nothing highlighted, J / K start on the first line on screen of the
+  // file being read.
+  const firstVisibleCursorStart = useStableCallback((): { itemId: string; index: number | null } | null => {
+    const currentId = visibleFileRef.current ? filePathToItemId.get(visibleFileRef.current) ?? null : null;
+    const itemId = currentId ?? orderedItemIds.find((id) => (cursorStopsOf(id)?.length ?? 0) > 0) ?? null;
+    if (itemId == null) return null;
+    const stops = cursorStopsOf(itemId);
+    const element = renderedItemElement(itemId);
+    const container = viewerRef.current?.getInstance()?.getContainerElement() ?? scrollRef.current;
+    if (!stops || element == null || container == null) return { itemId, index: null };
+    const top = container.getBoundingClientRect().top;
+    let best: number | null = null;
+    let bestTop = Infinity;
+    for (const root of getSearchRoots(element)) {
+      for (const el of (root as ParentNode).querySelectorAll?.('[data-line-type][data-line-index]') ?? []) {
+        const rect = el.getBoundingClientRect();
+        if (rect.top < top - 1 || rect.top >= bestTop) continue;
+        const unified = Number.parseInt(el.getAttribute('data-line-index') ?? '', 10);
+        if (!Number.isFinite(unified)) continue;
+        bestTop = rect.top;
+        best = unified;
+      }
+    }
+    const index = best == null ? -1 : stops.findIndex((stop) => stop.unifiedIndex === best);
+    return { itemId, index: index === -1 ? null : index };
+  });
+
+  // Ctrl+D / Ctrl+U: half the rows the view shows.
+  const halfPage = useStableCallback((): number => {
+    const viewer = viewerRef.current?.getInstance();
+    const container = viewer?.getContainerElement() ?? scrollRef.current;
+    if (container == null) return 1;
+    const height = viewer?.getHeight() || container.getBoundingClientRect().height;
+    return halfPageStops(height, renderedRowHeight(container, getSearchRoots as (root: ParentNode) => ParentNode[]));
+  });
+
+  const moveCursor = useStableCallback((direction: 'next' | 'prev', count = 1): boolean => {
+    const current = currentCursor();
+    let itemId: string;
+    let stops: CursorStop[] | null;
+    let index: number | null = null;
+    let fallback: number | null = null;
+    if (current) {
+      itemId = current.itemId;
+      stops = cursorStopsOf(itemId);
+      index = stops ? findCursorIndex(stops, current.position, direction) : null;
+    } else {
+      const start = firstVisibleCursorStart();
+      if (start == null) return false;
+      itemId = start.itemId;
+      stops = cursorStopsOf(itemId);
+      fallback = start.index;
+    }
+    // Ctrl+D / Ctrl+U: All files reads as one diff, so what is left of the
+    // half page past a file's edge carries on into the next file.
+    if (count > 1 && stops && index != null) {
+      const at = orderedItemIds.indexOf(itemId);
+      const stopLists = orderedItemIds.map((id) => (id === itemId ? stops : cursorStopsOf(id)) ?? []);
+      const landed = at === -1 ? null : carryCursor({ file: at, index }, count, direction, stopLists.map((list) => list.length));
+      if (landed == null) return false;
+      const targetId = orderedItemIds[landed.file];
+      const target = stopLists[landed.file][landed.index];
+      // The view scrolls as far as the cursor went, so the cursor keeps its
+      // place on screen (Vim's Ctrl+D / Ctrl+U).
+      const handle = viewerRef.current;
+      const viewer = handle?.getInstance();
+      const from = cursorElementOf(itemId, stops[index])?.getBoundingClientRect();
+      const to = cursorElementOf(targetId, target)?.getBoundingClientRect();
+      if (handle != null && viewer != null && from && to) {
+        handle.scrollTo({ type: 'position', position: Math.max(0, viewer.getScrollTop() + to.top - from.top) });
+      }
+      paintCursorStop(targetId, target);
+      return true;
+    }
+    if (stops && (index != null || current == null)) {
+      const step = stepCursor(stops.length, index, direction, fallback);
+      if ('index' in step) {
+        paintCursorStop(itemId, stops[step.index]);
+        return true;
+      }
+    }
+    // Past this file's edge (or the file has no stops): the next / previous
+    // expanded file with lines, on its first / last stop.
+    const at = orderedItemIds.indexOf(itemId);
+    if (at === -1) return false;
+    const stride = direction === 'next' ? 1 : -1;
+    for (let i = at + stride; i >= 0 && i < orderedItemIds.length; i += stride) {
+      const nextId = orderedItemIds[i];
+      const nextStops = cursorStopsOf(nextId);
+      if (!nextStops || nextStops.length === 0) continue;
+      paintCursorStop(nextId, direction === 'next' ? nextStops[0] : nextStops[nextStops.length - 1]);
+      return true;
+    }
+    return false;
+  });
+
+  const composeAtCursor = useStableCallback((): boolean => {
+    const host = toolbarHostRef.current;
+    const container = viewerRef.current?.getInstance()?.getContainerElement() ?? scrollRef.current;
+    if (!host || container == null || host.isOpen()) return false;
+    const current = currentCursor();
+    if (!current) return false;
+    const stops = cursorStopsOf(current.itemId) ?? [];
+    const view = container.getBoundingClientRect();
+    const index = findCursorIndex(stops, current.position, 'next');
+    const stop = index != null ? stops[index] : null;
+    if (stop) lastCursorRef.current = { itemId: current.itemId, stop };
+    const el = stop ? cursorElementOf(current.itemId, stop) : null;
+    const keyboard = { position: composerPositionFor(el?.getBoundingClientRect() ?? null, view) };
+    if (current.position.kind === 'comment') {
+      const id = current.position.annotationId;
+      const ann = annotationsRef.current.find((a) => a.id === id);
+      if (!ann) return false;
+      host.startEdit(ann, keyboard);
+      return true;
+    }
+    const filePath = itemIdToFilePath.get(current.itemId);
+    if (!filePath) return false;
+    if (activeFilePathRef.current === filePath) {
+      host.openLineAnnotation(current.position.range, keyboard);
+    } else {
+      pendingToolbarKeyboard.current = { range: current.position.range, keyboard };
+      setActiveFilePath(filePath);
+    }
+    return true;
+  });
+
+  // A keyboard composer closed: the cursor goes back where it was.
+  const handleKeyboardComposeEnd = useStableCallback(() => {
+    const last = lastCursorRef.current;
+    if (!last) return;
+    const stops = cursorStopsOf(last.itemId);
+    if (!stops) return;
+    const { stop } = last;
+    const again = stop.kind === 'comment'
+      ? stops.find((candidate) => candidate.kind === 'comment' && candidate.annotationId === stop.annotationId)
+        ?? stops.find((candidate) => candidate.kind === 'line' && candidate.unifiedIndex === stop.unifiedIndex)
+      : stops.find((candidate) => candidate.kind === 'line' && candidate.unifiedIndex === stop.unifiedIndex);
+    if (again) paintCursorStop(last.itemId, again);
+  });
+
   useEffect(() => {
     if (!isActive || readOnly || commentOnly) return;
     const handler = (e: KeyboardEvent) => {
@@ -3874,6 +4134,23 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
     onStage,
     jumpChange,
   ]);
+
+  // J / K / I / Enter — the line cursor (capture phase: see LINE_CURSOR_CAPTURE).
+  useEffect(() => {
+    if (!isActive || readOnly || commentOnly) return;
+    const handler = (e: KeyboardEvent) => {
+      const action = lineCursorKey(e);
+      if (!action || toolbarHostRef.current?.isOpen()) return;
+      const handled = action === 'insert'
+        ? composeAtCursor()
+        : action === 'pageDown' || action === 'pageUp'
+          ? moveCursor(action === 'pageDown' ? 'next' : 'prev', halfPage())
+          : moveCursor(action);
+      if (handled) e.preventDefault();
+    };
+    window.addEventListener('keydown', handler, LINE_CURSOR_CAPTURE);
+    return () => window.removeEventListener('keydown', handler, LINE_CURSOR_CAPTURE);
+  }, [isActive, readOnly, commentOnly, composeAtCursor, halfPage, moveCursor]);
 
   // --- Markdown view: the editing file, and the file a view key acts on ------
 
@@ -4446,6 +4723,7 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
         aiHistoryMessages={aiHistoryForActiveFile}
         askOnly={askOnly && !!aiAvailable}
         selectionActions={selectionActions}
+        onKeyboardComposeEnd={handleKeyboardComposeEnd}
       />
       )}
 

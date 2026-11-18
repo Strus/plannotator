@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import type { IDockviewPanelProps } from 'dockview-react';
 import { DiffViewer } from '../../components/DiffViewer';
 import { useReviewState } from '../ReviewStateContext';
@@ -13,6 +13,8 @@ import type { ChangedFileView } from '../../components/FileViewSwitch';
 import { usesPaneLayout } from '../../workspace/layoutEngine';
 import { paneFileView, type PaneFileViewParams } from '../../workspace/paneFileView';
 import { usePaneDiffStyle } from '../../workspace/paneContext';
+import { getReviewFileOrder } from '../../utils/fileKindTree';
+import { requestCursorEntry } from '../../utils/lineCursor';
 
 /**
  * Thin adapter between dockview's panel API and the existing DiffViewer.
@@ -93,6 +95,23 @@ export const ReviewDiffBody: React.FC<{
         : [],
     [state.activeFileSearchMatches, isFocusedFile, file]
   );
+
+  // J past a file's last line opens the next file of the left panel's list,
+  // K before its first line the previous one; the cursor lands on its first
+  // or last line there.
+  const { files, allFilesOrder, generatedFiles, openDiffFile } = state;
+  const filePathForStep = file?.path ?? null;
+  const onCursorStepFile = useCallback((direction: 'next' | 'prev'): boolean => {
+    if (!filePathForStep) return false;
+    const order = getReviewFileOrder(files, allFilesOrder, allFilesOrder === 'kind' ? generatedFiles : undefined);
+    const at = order.findIndex((index) => files[index]?.path === filePathForStep);
+    if (at === -1) return false;
+    const target = files[order[direction === 'next' ? at + 1 : at - 1]];
+    if (!target) return false;
+    requestCursorEntry(target.path, direction === 'next' ? 'first' : 'last');
+    openDiffFile(target.path);
+    return true;
+  }, [files, allFilesOrder, generatedFiles, openDiffFile, filePathForStep]);
 
   if (!file) {
     return (
@@ -178,6 +197,8 @@ export const ReviewDiffBody: React.FC<{
         prDiffScope={state.prDiffScope}
         isFocused={isFocusedFile}
         changeNavigation={isFocusedFile && state.isDiffPanelActive === true}
+        lineCursor={isFocusedFile && state.isDiffPanelActive === true}
+        onCursorStepFile={onCursorStepFile}
         diffStyle={paneDiffStyle}
         diffOverflow={state.diffOverflow}
         diffIndicators={state.diffIndicators}

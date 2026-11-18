@@ -8,12 +8,14 @@ export const reviewFileTreeShortcuts = defineShortcutScope({
       description: 'Next file',
       bindings: ['J', 'ArrowDown'],
       section: 'File Navigation',
+      hint: 'While a diff is shown, J moves the line cursor instead (it goes on to the next file at the end of one).',
       displayOrder: 10,
     },
     prevFile: {
       description: 'Previous file',
       bindings: ['K', 'ArrowUp'],
       section: 'File Navigation',
+      hint: 'While a diff is shown, K moves the line cursor instead.',
       displayOrder: 20,
     },
     firstFile: {

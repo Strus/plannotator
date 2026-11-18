@@ -1,4 +1,4 @@
-import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo } from 'react';
+import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef } from 'react';
 import type {
   CodeAnnotation,
   CodeAnnotationType,
@@ -10,7 +10,7 @@ import type {
 import type { DiffTokenEventBaseProps } from '@pierre/diffs';
 import { useConfigValue } from '@plannotator/ui/config';
 import { useHighlightCopy } from '@plannotator/ui/utils/highlightCopy';
-import { useAnnotationToolbar } from '../hooks/useAnnotationToolbar';
+import { useAnnotationToolbar, type KeyboardComposeOptions } from '../hooks/useAnnotationToolbar';
 import { AnnotationToolbar } from './AnnotationToolbar';
 import { SuggestionModal } from './SuggestionModal';
 import { ExpandedCommentDialog } from './ExpandedCommentDialog';
@@ -21,9 +21,12 @@ import { SelectionChooser, type DiffSelectionActions } from './SelectionChooser'
 
 export interface ToolbarHostHandle {
   handleLineSelectionEnd: (range: SelectedLineRange | null) => void;
-  openLineAnnotation: (range: SelectedLineRange) => void;
+  /** With `keyboard`: opens at its position, and Escape saves (the line cursor). */
+  openLineAnnotation: (range: SelectedLineRange, keyboard?: KeyboardComposeOptions) => void;
   handleTokenClick: (props: DiffTokenEventBaseProps, event: MouseEvent) => void;
-  startEdit: (annotation: CodeAnnotation) => void;
+  startEdit: (annotation: CodeAnnotation, keyboard?: KeyboardComposeOptions) => void;
+  /** A composer (or the chooser) is open. */
+  isOpen: () => boolean;
 }
 
 interface ToolbarHostProps {
@@ -58,6 +61,8 @@ interface ToolbarHostProps {
   askOnly?: boolean;
   /** A host's choices before the comment box (Comment · Ask · Show me). Absent: the comment box opens at once. */
   selectionActions?: DiffSelectionActions;
+  /** A composer the line cursor opened closed. */
+  onKeyboardComposeEnd?: () => void;
 }
 
 /**
@@ -79,6 +84,7 @@ export const ToolbarHost = forwardRef<ToolbarHostHandle, ToolbarHostProps>(funct
     aiHistoryMessages,
     askOnly = false,
     selectionActions,
+    onKeyboardComposeEnd,
   },
   ref,
 ) {
@@ -91,7 +97,10 @@ export const ToolbarHost = forwardRef<ToolbarHostHandle, ToolbarHostProps>(funct
     onEditAnnotation,
     askOnly,
     chooser: !!selectionActions && !askOnly,
+    onKeyboardComposeEnd,
   });
+  const isOpenRef = useRef(false);
+  isOpenRef.current = !!toolbar.toolbarState || toolbar.showCodeModal;
 
   // A drag over the diff becomes a line range (or a token) and the composer's
   // textarea takes the focus, so the browser's copy has nothing: Ctrl+C copies
@@ -120,6 +129,7 @@ export const ToolbarHost = forwardRef<ToolbarHostHandle, ToolbarHostProps>(funct
       openLineAnnotation: toolbar.openLineAnnotation,
       handleTokenClick: toolbar.handleTokenClick,
       startEdit: toolbar.startEdit,
+      isOpen: () => isOpenRef.current,
     }),
     [toolbar.handleLineSelectionEnd, toolbar.openLineAnnotation, toolbar.handleTokenClick, toolbar.startEdit],
   );
@@ -216,6 +226,7 @@ export const ToolbarHost = forwardRef<ToolbarHostHandle, ToolbarHostProps>(funct
           isEditing={!!toolbar.editingAnnotationId}
           onSubmit={toolbar.handleSubmitAnnotation}
           onDismiss={toolbar.handleDismiss}
+          onEscape={toolbar.handleEscape}
           onCancel={toolbar.handleCancel}
           conventionalCommentsEnabled={conventionalCommentsEnabled}
           conventionalLabel={toolbar.conventionalLabel}

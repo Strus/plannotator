@@ -4,10 +4,13 @@ export function useDismissOnOutsideAndEscape({
   enabled,
   ref,
   onDismiss,
+  onEscape,
 }: {
   enabled: boolean;
   ref: React.RefObject<HTMLElement | null>;
   onDismiss: () => void;
+  /** Escape's own action; absent, Escape dismisses like an outside click. */
+  onEscape?: () => void;
 }) {
   useEffect(() => {
     if (!enabled) return;
@@ -35,7 +38,7 @@ export function useDismissOnOutsideAndEscape({
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        onDismiss();
+        (onEscape ?? onDismiss)();
       }
     };
 
@@ -46,5 +49,5 @@ export function useDismissOnOutsideAndEscape({
       document.removeEventListener("mousedown", handleMouseDown, true);
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [enabled, ref, onDismiss]);
+  }, [enabled, ref, onDismiss, onEscape]);
 }

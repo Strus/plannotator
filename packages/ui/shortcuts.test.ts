@@ -116,6 +116,7 @@ describe('shortcuts', () => {
       'History',
       'Go to',
       'Call tree',
+      'Line Cursor',
       'All-Files View',
       'Markdown Files',
       'Annotations',
@@ -152,6 +153,19 @@ describe('shortcuts', () => {
     expect(claimants('N')).toEqual(['review-editor.nextChange']);
     expect(claimants('Shift+N')).toEqual(['review-editor.prevChange']);
     expect(claimants('P')).toEqual(['review-markdown-preview.cycleMarkdownView']);
+  });
+
+  // The diff line cursor shares J / K only with the file list (which yields
+  // to it while a diff is shown, see lineCursor.ts); I is its own.
+  it('binds the diff line cursor to J, K, Ctrl+D, Ctrl+U and I beside the file list only', () => {
+    const claimants = (binding: string) => listRegistryShortcuts(reviewSettingsShortcutRegistry)
+      .filter(entry => entry.bindings.includes(binding))
+      .map(entry => `${entry.scopeId}.${entry.actionId}`);
+    expect(claimants('J').sort()).toEqual(['review-file-tree.nextFile', 'review-line-cursor.moveDown']);
+    expect(claimants('K').sort()).toEqual(['review-file-tree.prevFile', 'review-line-cursor.moveUp']);
+    expect(claimants('I')).toEqual(['review-line-cursor.comment']);
+    expect(claimants('Ctrl+D')).toEqual(['review-line-cursor.halfPageDown']);
+    expect(claimants('Ctrl+U')).toEqual(['review-line-cursor.halfPageUp']);
   });
 
   // The two HTML-surface chords are the only way back into annotate mode after

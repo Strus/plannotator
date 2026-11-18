@@ -63,3 +63,18 @@ export function getFileKindOrder(files: readonly DiffFile[], generated?: Readonl
   const blocks = buildFileKindBlocks(files, generated);
   return getVisualFileOrder(blocks ? blocks.flatMap((block) => block.tree) : buildFileTree(files));
 }
+
+/**
+ * File indexes in the order the left panel lists them: the tree, the
+ * kind-grouped tree, or the files array as given (the sections view already
+ * arranged it). All files and the line cursor's next file both follow it.
+ */
+export function getReviewFileOrder(
+  files: readonly DiffFile[],
+  order: 'tree' | 'kind' | 'list' = 'tree',
+  generated?: ReadonlySet<string>,
+): number[] {
+  if (order === 'list') return files.map((_, index) => index);
+  if (order === 'kind') return getFileKindOrder(files, generated);
+  return getVisualFileOrder(buildFileTree(files));
+}

@@ -37,6 +37,8 @@ interface AnnotationToolbarProps {
   setShowCommentModal: (show: boolean) => void;
   onSubmit: () => void;
   onDismiss: () => void;
+  /** Escape in the comment field; absent, it dismisses. */
+  onEscape?: () => void;
   onCancel: () => void;
   // Conventional Comments
   conventionalCommentsEnabled: boolean;
@@ -121,6 +123,7 @@ export const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
   setShowCommentModal,
   onSubmit,
   onDismiss,
+  onEscape,
   onCancel,
   conventionalCommentsEnabled,
   conventionalLabel,
@@ -148,6 +151,14 @@ export const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
     holdCommentTags(tagsFromIds(mention.mentionIds, liveSource));
     onSubmit();
   };
+  // An edit opens with the caret after the text, so typing adds to the comment.
+  useEffect(() => {
+    const field = commentRef.current;
+    if (!isEditing || !field || document.activeElement !== field) return;
+    field.setSelectionRange(field.value.length, field.value.length);
+    // Once per opened edit; later typing moves the caret itself.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEditing]);
   const [toolbarHeight, setToolbarHeight] = useState<number | null>(null);
   const enterSavesComment = useConfigValue('enterSavesComment');
   const handleTabIndent = useTabIndent(setSuggestedCode);
@@ -319,7 +330,7 @@ export const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
               if (mention.onKeyDown(e)) return;
               if (e.key === 'Escape') {
                 e.stopPropagation();
-                onDismiss();
+                (onEscape ?? onDismiss)();
               } else if (isCommentSubmitKey(e, enterSavesComment)) {
                 // Prevented so a plain Enter (the setting on) adds no newline.
                 e.preventDefault();

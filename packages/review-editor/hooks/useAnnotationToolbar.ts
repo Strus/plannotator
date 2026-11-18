@@ -47,6 +47,16 @@ interface UseAnnotationToolbarArgs {
    * (or a touch screen's expanded composer) opens only after Comment.
    */
   chooser?: boolean;
+  /**
+   * A composer the keyboard opened (the line cursor's `I` / `Enter`) closed:
+   * saved, cancelled or dismissed. The view puts its cursor back.
+   */
+  onKeyboardComposeEnd?: () => void;
+}
+
+/** How the line cursor opens the composer: at its row, and Escape saves. */
+export interface KeyboardComposeOptions {
+  position: { top: number; left: number };
 }
 
 // Per-range draft storage (survives component remounts, e.g. file switches)
@@ -70,7 +80,7 @@ function draftKey(filePath: string, range: SelectedLineRange): string {
   return `${filePath}:${range.side}:${start}-${end}`;
 }
 
-export function useAnnotationToolbar({ patch, filePath, isFocused, onLineSelection, onAddAnnotation, onEditAnnotation, askOnly = false, chooser = false }: UseAnnotationToolbarArgs) {
+export function useAnnotationToolbar({ patch, filePath, isFocused, onLineSelection, onAddAnnotation, onEditAnnotation, askOnly = false, chooser = false, onKeyboardComposeEnd }: UseAnnotationToolbarArgs) {
   const visibleBounds = useVisibleViewportBounds(16);
   const expandedComposerRequired = !askOnly && shouldUseExpandedComposer({
     bounds: visibleBounds,
@@ -94,6 +104,8 @@ export function useAnnotationToolbar({ patch, filePath, isFocused, onLineSelecti
   const [decorations, setDecorations] = useState<ConventionalDecoration[]>([]);
   /** The chooser is showing (only with `chooser`): nothing of the comment box yet. */
   const [choosing, setChoosing] = useState(false);
+  /** The keyboard opened this composer: Escape saves what was written. */
+  const [keyboardCompose, setKeyboardCompose] = useState(false);
 
   // Refs to avoid stale closures in saveDraft
   const formRef = useRef({ commentText, suggestedCode, showSuggestedCode, conventionalLabel, decorations });
@@ -160,6 +172,7 @@ export function useAnnotationToolbar({ patch, filePath, isFocused, onLineSelecti
     setConventionalLabel(null);
     setDecorations([]);
     setChoosing(false);
+    setKeyboardCompose(false);
   }, []);
 
   // Track mouse position continuously for toolbar placement.
@@ -174,13 +187,17 @@ export function useAnnotationToolbar({ patch, filePath, isFocused, onLineSelecti
     range: SelectedLineRange,
     position: { top: number; left: number },
     tokenSelection?: TokenSelection,
+    keyboard = false,
   ) => {
     saveDraft();
     setEditingAnnotationId(null);
     setAskAIMode(false);
     setShowCodeModal(false);
-    setChoosing(chooser);
-    setShowCommentModal(expandedComposerRequired && !chooser);
+    // The keyboard asked for a comment: no chooser first.
+    const choose = chooser && !keyboard;
+    setChoosing(choose);
+    setShowCommentModal(expandedComposerRequired && !choose);
+    setKeyboardCompose(keyboard);
 
     const draft = draftStore.get(draftKey(filePath, range));
     if (draft) {
@@ -215,6 +232,7 @@ export function useAnnotationToolbar({ patch, filePath, isFocused, onLineSelecti
 
     if (!range) {
       setToolbarState(null);
+      setKeyboardCompose(false);
       onLineSelection(null);
       return;
     }
@@ -231,12 +249,12 @@ export function useAnnotationToolbar({ patch, filePath, isFocused, onLineSelecti
   }, [onLineSelection, openToolbar, visibleBounds]);
 
   /** Open the ordinary code-review composer for a selection requested elsewhere. */
-  const openLineAnnotation = useCallback((range: SelectedLineRange) => {
+  const openLineAnnotation = useCallback((range: SelectedLineRange, keyboard?: KeyboardComposeOptions) => {
     tokenAnchorRef.current = null;
-    openToolbar(range, {
+    openToolbar(range, keyboard?.position ?? {
       top: Math.max(visibleBounds.top + 64, visibleBounds.top + visibleBounds.height / 2 - 80),
       left: visibleBounds.left + visibleBounds.width / 2,
-    });
+    }, undefined, !!keyboard);
   }, [openToolbar, visibleBounds]);
 
   // Handle annotation submission (create or update)
@@ -275,7 +293,8 @@ export function useAnnotationToolbar({ patch, filePath, isFocused, onLineSelecti
   }, [toolbarState, commentText, suggestedCode, selectedOriginalCode, editingAnnotationId, conventionalLabel, decorations, onAddAnnotation, onEditAnnotation, clearDraft, resetForm]);
 
   // Start editing an existing annotation
-  const startEdit = useCallback((annotation: CodeAnnotation) => {
+  const startEdit = useCallback((annotation: CodeAnnotation, keyboard?: KeyboardComposeOptions) => {
+    setKeyboardCompose(!!keyboard);
     setEditingAnnotationId(annotation.id);
     setCommentText(annotation.text || '');
     setSuggestedCode(annotation.suggestedCode || '');
@@ -292,12 +311,12 @@ export function useAnnotationToolbar({ patch, filePath, isFocused, onLineSelecti
     const mousePos = lastMousePosition.current;
     const hasPointerPosition = mousePos.x > 0 || mousePos.y > 0;
     setToolbarState({
-      position: hasPointerPosition
+      position: keyboard?.position ?? (hasPointerPosition
         ? { top: mousePos.y + 10, left: mousePos.x }
         : {
             top: visibleBounds.top + visibleBounds.height / 2,
             left: visibleBounds.left + visibleBounds.width / 2,
-          },
+          }),
       range: {
         start: annotation.lineStart,
         end: annotation.lineEnd,
@@ -312,6 +331,41 @@ export function useAnnotationToolbar({ patch, filePath, isFocused, onLineSelecti
     setToolbarState(null);
     onLineSelection(null);
   }, [onLineSelection, saveDraft]);
+
+  // Escape: a composer the keyboard opened saves what was written (an empty
+  // one just closes); one the pointer opened is dismissed, its draft kept.
+  const handleEscape = useCallback(() => {
+    const hasContent = commentText.trim().length > 0 || suggestedCode.trim().length > 0;
+    if (keyboardCompose && hasContent) {
+      handleSubmitAnnotation();
+      return;
+    }
+    if (keyboardCompose && editingAnnotationId) {
+      // An edit emptied with Escape keeps the comment as it was.
+      resetForm();
+      return;
+    }
+    handleDismiss();
+  }, [commentText, suggestedCode, keyboardCompose, editingAnnotationId, handleSubmitAnnotation, handleDismiss, resetForm]);
+
+  // A keyboard composer closed (any way): the view puts its cursor back.
+  const keyboardOpenRef = useRef(false);
+  const onKeyboardComposeEndRef = useRef(onKeyboardComposeEnd);
+  onKeyboardComposeEndRef.current = onKeyboardComposeEnd;
+  useEffect(() => {
+    if (toolbarState && keyboardCompose) {
+      keyboardOpenRef.current = true;
+      return;
+    }
+    if (!keyboardOpenRef.current) return;
+    if (toolbarState && !keyboardCompose) {
+      // The pointer took over the composer.
+      keyboardOpenRef.current = false;
+      return;
+    }
+    keyboardOpenRef.current = false;
+    onKeyboardComposeEndRef.current?.();
+  }, [toolbarState, keyboardCompose]);
 
   // Hide: the toolbar goes and the selection stays painted (a host took the lines elsewhere: Ask, Show me).
   const handleHide = useCallback(() => {
@@ -334,6 +388,7 @@ export function useAnnotationToolbar({ patch, filePath, isFocused, onLineSelecti
     enabled: !!toolbarState && !showCodeModal && !showCommentModal,
     ref: toolbarRef,
     onDismiss: handleDismiss,
+    onEscape: handleEscape,
   });
 
   useEffect(() => {
@@ -446,6 +501,7 @@ export function useAnnotationToolbar({ patch, filePath, isFocused, onLineSelecti
     handleTokenClick,
     handleSubmitAnnotation,
     handleDismiss,
+    handleEscape,
     handleCancel,
     handleHide,
     choosing,

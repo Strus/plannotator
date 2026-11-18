@@ -71,6 +71,22 @@ import {
   resolveChangeJump,
   type ChangePlacement,
 } from '../utils/changeNavigation';
+import {
+  composerPositionFor,
+  cursorRowSelector,
+  findCursorIndex,
+  lineCursorKey,
+  listCursorLines,
+  listCursorStops,
+  rangeOfLineStop,
+  halfPageStops,
+  renderedRowHeight,
+  stepCursorBy,
+  takeCursorEntry,
+  LINE_CURSOR_CAPTURE,
+  type CursorPosition,
+  type CursorStop,
+} from '../utils/lineCursor';
 
 // Pierre picks each file's grammar from its name when the file renders.
 applyFileLanguageFixes();
@@ -230,6 +246,12 @@ interface DiffViewerProps {
    *  focused file of the active single-file panel, so one key never moves two
    *  diffs. */
   changeNavigation?: boolean;
+  /** `J` / `K` move a line cursor through this file's lines and comments,
+   *  `I` / `Enter` comment on it. On under the same rule as `changeNavigation`. */
+  lineCursor?: boolean;
+  /** `J` past the last line / `K` before the first: open the next / previous
+   *  file. False when there is none. */
+  onCursorStepFile?: (direction: 'next' | 'prev') => boolean;
   diffStyle: 'split' | 'unified';
   diffOverflow?: 'scroll' | 'wrap';
   diffIndicators?: 'bars' | 'classic' | 'none';
@@ -359,6 +381,8 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
   prDiffScope,
   isFocused = false,
   changeNavigation = false,
+  lineCursor = false,
+  onCursorStepFile,
   diffStyle,
   diffOverflow,
   diffIndicators = 'bars',
@@ -1045,6 +1069,186 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
     return () => window.removeEventListener('keydown', handler);
   }, [changeNavigation, collapsed, markdownPreviewEnabled, changes, jumpChange]);
 
+  // J / K: the line cursor (lineCursor.ts). Its position is what the view
+  // highlights (a selected range, else a selected comment), so a click moves
+  // it too; `lastCursorStopRef` puts it back once a keyboard composer closes.
+  const cursorLines = useMemo(() => listCursorLines(augmentedDiff, expandUnchanged), [augmentedDiff, expandUnchanged]);
+  const cursorAnnotations = useMemo(() => annotations.filter((ann) => !ann.markdownPreview), [annotations]);
+  const cursorStops = useMemo(() => listCursorStops(cursorLines, cursorAnnotations), [cursorLines, cursorAnnotations]);
+  const cursorActive = lineCursor && !collapsed && !markdownPreviewEnabled && !bodyOverride;
+  const lastCursorStopRef = useRef<CursorStop | null>(null);
+  const cursorLive = useRef({ cursorStops, pendingSelection, selectedAnnotationId, annotations });
+  cursorLive.current = { cursorStops, pendingSelection, selectedAnnotationId, annotations };
+
+  const cursorElementOf = useCallback((stop: CursorStop): HTMLElement | null => {
+    const container = containerRef.current;
+    if (!container) return null;
+    if (stop.kind === 'comment') {
+      const el = container.querySelector(`[data-annotation-id="${stop.annotationId}"]`);
+      return el instanceof HTMLElement ? el : null;
+    }
+    const selector = `[data-line-type]${cursorRowSelector(stop)}`;
+    for (const root of getSearchRoots(container)) {
+      const el = (root as ParentNode).querySelector?.(selector);
+      if (el instanceof HTMLElement) return el;
+    }
+    return null;
+  }, []);
+
+  // Keep the stop on screen with a few rows of room, without centring every step.
+  const revealCursorStop = useCallback((stop: CursorStop) => {
+    const container = containerRef.current;
+    const el = cursorElementOf(stop);
+    if (!container || !el) return;
+    const view = container.getBoundingClientRect();
+    const rect = el.getBoundingClientRect();
+    const margin = Math.min(72, view.height / 4);
+    if (rect.top < view.top + margin) container.scrollTop -= view.top + margin - rect.top;
+    else if (rect.bottom > view.bottom - margin) container.scrollTop += rect.bottom - (view.bottom - margin);
+  }, [cursorElementOf]);
+
+  const paintCursorStop = useCallback((stop: CursorStop) => {
+    lastCursorStopRef.current = stop;
+    const live = cursorLive.current;
+    if (stop.kind === 'line') {
+      if (live.selectedAnnotationId) onSelectAnnotation(null);
+      onLineSelection(rangeOfLineStop(stop));
+    } else {
+      if (live.pendingSelection) onLineSelection(null);
+      if (live.selectedAnnotationId !== stop.annotationId) onSelectAnnotation(stop.annotationId);
+    }
+    revealCursorStop(stop);
+  }, [onLineSelection, onSelectAnnotation, revealCursorStop]);
+
+  // The stop the view highlights now, if any.
+  const currentCursorPosition = useCallback((): CursorPosition | null => {
+    const live = cursorLive.current;
+    if (live.pendingSelection) return { kind: 'range', range: live.pendingSelection };
+    if (live.selectedAnnotationId && live.annotations.some((ann) => ann.id === live.selectedAnnotationId)) {
+      return { kind: 'comment', annotationId: live.selectedAnnotationId };
+    }
+    return null;
+  }, []);
+
+  // With nothing highlighted, J / K start on the first line on screen.
+  const firstVisibleStopIndex = useCallback((): number | null => {
+    const container = containerRef.current;
+    if (!container) return null;
+    const top = container.getBoundingClientRect().top;
+    let best: number | null = null;
+    let bestTop = Infinity;
+    for (const root of getSearchRoots(container)) {
+      for (const el of (root as ParentNode).querySelectorAll?.('[data-line-type][data-line-index]') ?? []) {
+        const rect = el.getBoundingClientRect();
+        if (rect.top < top - 1 || rect.top >= bestTop) continue;
+        const unified = Number.parseInt(el.getAttribute('data-line-index') ?? '', 10);
+        if (!Number.isFinite(unified)) continue;
+        bestTop = rect.top;
+        best = unified;
+      }
+    }
+    if (best == null) return null;
+    const index = cursorLive.current.cursorStops.findIndex((stop) => stop.unifiedIndex === best);
+    return index === -1 ? null : index;
+  }, []);
+
+  // Ctrl+D / Ctrl+U: half the rows the view shows.
+  const halfPage = useCallback((): number => {
+    const container = containerRef.current;
+    if (!container) return 1;
+    const height = container.clientHeight || container.getBoundingClientRect().height;
+    return halfPageStops(height, renderedRowHeight(container, getSearchRoots as (root: ParentNode) => ParentNode[]));
+  }, []);
+
+  const moveCursor = useCallback((direction: 'next' | 'prev', count = 1): boolean => {
+    const stops = cursorLive.current.cursorStops;
+    const current = findCursorIndex(stops, currentCursorPosition(), direction);
+    const step = stepCursorBy(stops.length, current, direction, count, current == null ? firstVisibleStopIndex() : null);
+    if ('index' in step) {
+      const target = stops[step.index];
+      // A half-page move scrolls the view as far as the cursor went, so the
+      // cursor keeps its place on screen (Vim's Ctrl+D / Ctrl+U).
+      const container = containerRef.current;
+      if (count > 1 && current != null && container) {
+        const from = cursorElementOf(stops[current])?.getBoundingClientRect();
+        const to = cursorElementOf(target)?.getBoundingClientRect();
+        if (from && to) container.scrollTop += to.top - from.top;
+      }
+      paintCursorStop(target);
+      return true;
+    }
+    return onCursorStepFile?.(direction) ?? false;
+  }, [currentCursorPosition, cursorElementOf, firstVisibleStopIndex, onCursorStepFile, paintCursorStop]);
+
+  const composeAtCursor = useCallback((): boolean => {
+    const host = toolbarHostRef.current;
+    const container = containerRef.current;
+    if (!host || !container || host.isOpen()) return false;
+    const live = cursorLive.current;
+    const position = currentCursorPosition();
+    if (!position) return false;
+    const view = container.getBoundingClientRect();
+    if (position.kind === 'comment') {
+      const ann = live.annotations.find((candidate) => candidate.id === position.annotationId);
+      if (!ann) return false;
+      const stop = live.cursorStops.find((candidate) => candidate.kind === 'comment' && candidate.annotationId === ann.id) ?? null;
+      if (stop) lastCursorStopRef.current = stop;
+      const el = stop ? cursorElementOf(stop) : null;
+      host.startEdit(ann, { position: composerPositionFor(el?.getBoundingClientRect() ?? null, view) });
+      return true;
+    }
+    const range = position.range;
+    const index = findCursorIndex(live.cursorStops, position, 'next');
+    const stop = index != null ? live.cursorStops[index] : null;
+    if (stop) lastCursorStopRef.current = stop;
+    const el = stop ? cursorElementOf(stop) : null;
+    host.openLineAnnotation(range, { position: composerPositionFor(el?.getBoundingClientRect() ?? null, view) });
+    return true;
+  }, [currentCursorPosition, cursorElementOf]);
+
+  // A keyboard composer closed: the cursor goes back where it was (a saved
+  // comment's own stop stays the next J).
+  const handleKeyboardComposeEnd = useCallback(() => {
+    const last = lastCursorStopRef.current;
+    if (!last) return;
+    const stops = cursorLive.current.cursorStops;
+    const again = last.kind === 'comment'
+      ? stops.find((stop) => stop.kind === 'comment' && stop.annotationId === last.annotationId)
+        ?? stops.find((stop) => stop.kind === 'line' && stop.unifiedIndex === last.unifiedIndex)
+      : stops.find((stop) => stop.kind === 'line' && stop.unifiedIndex === last.unifiedIndex);
+    if (again) paintCursorStop(again);
+  }, [paintCursorStop]);
+
+  // Entering this file from the previous / next one (J / K at a file's edge).
+  useEffect(() => {
+    if (!cursorActive) return;
+    const at = takeCursorEntry(filePath);
+    if (!at) return;
+    if (cursorStops.length === 0) {
+      onCursorStepFile?.(at === 'first' ? 'next' : 'prev');
+      return;
+    }
+    paintCursorStop(at === 'first' ? cursorStops[0] : cursorStops[cursorStops.length - 1]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cursorActive, filePath, cursorStops]);
+
+  useEffect(() => {
+    if (!cursorActive) return;
+    const handler = (e: KeyboardEvent) => {
+      const action = lineCursorKey(e);
+      if (!action) return;
+      if (toolbarHostRef.current?.isOpen()) return;
+      const handled = action === 'insert'
+        ? composeAtCursor()
+        : action === 'pageDown' || action === 'pageUp'
+          ? moveCursor(action === 'pageDown' ? 'next' : 'prev', halfPage())
+          : moveCursor(action);
+      if (handled) e.preventDefault();
+    };
+    window.addEventListener('keydown', handler, LINE_CURSOR_CAPTURE);
+    return () => window.removeEventListener('keydown', handler, LINE_CURSOR_CAPTURE);
+  }, [cursorActive, composeAtCursor, halfPage, moveCursor]);
+
   // Token interaction handlers (code area clicks)
   const handleTokenClick = useCallback((props: DiffTokenEventBaseProps, event: MouseEvent) => {
     onTokenTarget?.('click', props, filePath);
@@ -1331,6 +1535,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
                 isAILoading={isAILoading}
                 onViewAIResponse={onViewAIResponse}
                 aiHistoryMessages={aiHistoryMessages}
+                onKeyboardComposeEnd={handleKeyboardComposeEnd}
               />
             </>
           )}

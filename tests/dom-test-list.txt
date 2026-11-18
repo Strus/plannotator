@@ -395,9 +395,12 @@ packages/ui/components/CodeFilePopout.highlightCopy.test.tsx
 packages/ui/components/plan-diff/PlanCleanDiffView.highlightCopy.test.tsx
 packages/ui/components/html-viewer/HtmlViewer.highlightCopy.test.tsx
 packages/review-editor/components/ToolbarHost.highlightCopy.test.tsx
+packages/review-editor/components/ToolbarHost.keyboardCompose.test.tsx
+packages/review-editor/utils/lineCursor.test.ts
 packages/review-editor/components/AllFilesCodeView.markdownPreview.test.tsx
 packages/inbox/rowLongPress.test.tsx
 packages/review-editor/components/AllFilesCodeView.changeNavigation.test.tsx
+packages/review-editor/components/AllFilesCodeView.lineCursor.test.tsx
 packages/review-editor/components/MarkdownFilePreview.test.tsx
 packages/review-editor/components/guide/overviewDiagram.test.tsx
 packages/review-editor/hooks/useMarkdownPreview.test.tsx
@@ -861,3 +864,4 @@ packages/inbox/guide/useSemDiffClient.test.tsx
 packages/inbox/projectTagMenu.test.tsx
 packages/inbox/projectTagsFilter.test.tsx
 packages/inbox/tagWritesPending.test.tsx
+packages/review-editor/App.prOverviewLineCursor.test.tsx
