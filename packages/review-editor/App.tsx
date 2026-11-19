@@ -228,6 +228,7 @@ import { HeaderTotals } from './components/HeaderTotals';
 import { HeaderBranch } from './components/HeaderBranch';
 import { COMPACT_REVIEW_HEADER_HEIGHT, REVIEW_HEADER_HEIGHT } from './utils/diffChromeMetrics';
 import { usePRContext } from './hooks/usePRContext';
+import { usePRThreadResolve } from './hooks/usePRThreadResolve';
 import {
   REVIEW_PANEL_TYPES,
   REVIEW_DIFF_PANEL_ID,
@@ -1124,7 +1125,12 @@ const ReviewApp: React.FC = () => {
   const semanticDiffAutoFallbackPending = useRef(false);
 
   // PR context (lifted from sidebar so center dock PR panels can access it)
-  const { prContext, isLoading: isPRContextLoading, error: prContextError, fetchContext: fetchPRContext } = usePRContext(prMetadata ?? null);
+  const { prContext: forgePRContext, isLoading: isPRContextLoading, error: prContextError, fetchContext: fetchPRContext } = usePRContext(prMetadata ?? null);
+  const { prContext, setThreadResolved: setPRThreadResolved, busy: prThreadBusy } = usePRThreadResolve(
+    forgePRContext,
+    prMetadata?.url,
+    (message) => toast.error(message),
+  );
   const prArtifacts = useMemo(
     () => buildPRArtifacts(prMetadata ?? null, prContext),
     [prMetadata, prContext],
@@ -3105,9 +3111,18 @@ const ReviewApp: React.FC = () => {
       line: placed.line,
       side: placed.side,
       key: placedPRThreadKey(placed),
-      render: () => <PRLineThread placed={placed} memory={prThreadMemory} forge={forge} authenticatedImages={authenticatedImages} />,
+      render: () => (
+        <PRLineThread
+          placed={placed}
+          memory={prThreadMemory}
+          forge={forge}
+          authenticatedImages={authenticatedImages}
+          onSetResolved={setPRThreadResolved}
+          busy={prThreadBusy}
+        />
+      ),
     }));
-  }, [prContext?.reviewThreads, prMetadata, files, prDiffScope, diffType, prThreadMemory]);
+  }, [prContext?.reviewThreads, prMetadata, files, prDiffScope, diffType, prThreadMemory, setPRThreadResolved, prThreadBusy]);
   const hostLineNotes = useMemo<HostLineNote[]>(
     () => (prThreadNotes.length === 0 ? callTreeHunkNotes : callTreeHunkNotes.length === 0 ? prThreadNotes : [...prThreadNotes, ...callTreeHunkNotes]),
     [prThreadNotes, callTreeHunkNotes],
@@ -4762,6 +4777,8 @@ const ReviewApp: React.FC = () => {
     agentJobs: agentJobs.jobs,
     prMetadata,
     prContext,
+    onSetPRThreadResolved: setPRThreadResolved,
+    prThreadBusy,
     prArtifacts,
     openPRArtifact,
     prArtifactFocus,
@@ -4825,7 +4842,7 @@ const ReviewApp: React.FC = () => {
     activeFileSearchMatches, activeSearchMatchId, activeSearchMatch, searchMatches,
     aiAvailable, aiMessages, aiIsCreatingSession, aiIsStreaming,
     handleAskAI, handleAskAIForFile, handleViewAIResponse, handleClickAIMarker,
-    aiHistoryForSelection, getAIHistoryForFile, agentJobs.jobs, prMetadata, prContext, prArtifacts, openPRArtifact, prArtifactFocus, handlePRArtifactFocusHandled,
+    aiHistoryForSelection, getAIHistoryForFile, agentJobs.jobs, prMetadata, prContext, setPRThreadResolved, prThreadBusy, prArtifacts, openPRArtifact, prArtifactFocus, handlePRArtifactFocusHandled,
     isPRContextLoading, prContextError, fetchPRContext, platformUser, openDiffFile,
     handleAllFilesVisibleFileChange, handleFileScrolledPast,
     handleOpenGuide, isAllFilesActive, allFilesOrder, allFilesAllCollapsed, onToggleAllFilesCollapsed, registerAllFilesCollapseToggle, commitInfo, isSemanticDiffActive, semanticDiffUsable,

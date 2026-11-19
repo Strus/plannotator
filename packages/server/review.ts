@@ -181,7 +181,7 @@ import { agentSwitchConfigToSave, agentToolSaveFailed, cookieHostConfigWrite, lo
 import { getAutoUpdateAdvert, getUpdateAdvert, handleUpdateRoute } from "./auto-update";
 import { appendFeedbackRecord, countChangedFiles, deriveFeedbackProject, type FeedbackDecision, type FeedbackReviewTarget } from "@plannotator/shared/feedback-archive";
 import { isFaviconStyle, type FaviconStyle } from "@plannotator/shared/favicon";
-import { type PRMetadata, type PRRef, type PRReviewFileComment, type PRStackTree, type PRListItem, fetchPR, fetchPRFileContent, fetchPRFileBytes, fetchPRTree, fetchPRContext, submitPRReview, parseFileLevelComments, parsePRReviewAction, fetchPRViewedFiles, markPRFilesViewed, fetchPRStack, fetchPRList, getPRUser, parsePRUrl, prRefFromMetadata, isSameProject, getDisplayRepo, getMRLabel, getMRNumberLabel, getPRNumber, prCommandRuntime } from "./pr";
+import { type PRMetadata, type PRRef, type PRReviewFileComment, type PRStackTree, type PRListItem, fetchPR, fetchPRFileContent, fetchPRFileBytes, fetchPRTree, fetchPRContext, submitPRReview, parseFileLevelComments, parsePRReviewAction, parsePRThreadResolveRequest, fetchPRViewedFiles, markPRFilesViewed, setPRThreadResolved, fetchPRStack, fetchPRList, getPRUser, parsePRUrl, prRefFromMetadata, isSameProject, getDisplayRepo, getMRLabel, getMRNumberLabel, getPRNumber, prCommandRuntime } from "./pr";
 import {
   PR_CONTEXT_HEARTBEAT_COMMENT,
   PR_CONTEXT_HEARTBEAT_INTERVAL_MS,
@@ -4467,6 +4467,33 @@ export async function startReviewServer(
                 err instanceof Error ? err.message : "Failed to submit PR review";
               console.error(`[pr-action] Failed: ${message}`);
               return Response.json({ error: message }, { status: 500 });
+            }
+          }
+
+          // API: Resolve or unresolve one of the PR's review threads on the platform (PR mode only)
+          if (url.pathname === "/api/pr-thread-resolve" && req.method === "POST") {
+            if (!isPRMode || !prMetadata || !prRef) {
+              return Response.json({ error: "Not in PR mode" }, { status: 400 });
+            }
+            try {
+              const body: unknown = await req.json().catch(() => null);
+              if (checkServerSession(body, serverSession) === "mismatch") {
+                return Response.json(serverSessionMismatchBody(), { status: 409 });
+              }
+              const request = parsePRThreadResolveRequest(body);
+              if (!request) {
+                return Response.json({ error: "threadId, resolved and prUrl are required" }, { status: 400 });
+              }
+              if (request.prUrl !== prMetadata.url) {
+                return Response.json({ error: "This review is on another pull request now" }, { status: 409 });
+              }
+              await setPRThreadResolved(prRef, request.threadId, request.resolved);
+              prContextLive.refreshAfterWrite(prMetadata.url, prRef);
+              return Response.json({ ok: true });
+            } catch (err) {
+              const message = err instanceof Error ? err.message : "Failed to update the thread";
+              console.error("[plannotator] /api/pr-thread-resolve error:", message);
+              return Response.json({ error: message }, { status: 502 });
             }
           }
 

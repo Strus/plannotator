@@ -13,6 +13,8 @@ import { useReviewState } from '../dock/ReviewStateContext';
 import { proxiesGitHubImages } from '../utils/prImage';
 import { Avatar } from './Avatar';
 import { BotTag, formatRelativeTime } from './prCommentBits';
+import { ResolveThreadButton } from './PRLineThread';
+import type { PRThreadBusy } from '../hooks/usePRThreadResolve';
 
 type AnnotateFn = (commentId: string, author: string, body: string, anchorEl: HTMLElement) => void;
 
@@ -121,7 +123,7 @@ export const PRCommentsTab: React.FC<PRCommentsTabProps> = React.memo(({ context
   const [excludedAuthors, setExcludedAuthors] = useState<Set<string>>(new Set());
 
   // Comment annotation: the "Annotate" button on a card opens one comment box.
-  const { onAddCommentAnnotation, onAskAIForComment, commentScrollTarget, prMetadata } = useReviewState();
+  const { onAddCommentAnnotation, onAskAIForComment, commentScrollTarget, prMetadata, onSetPRThreadResolved, prThreadBusy } = useReviewState();
   const authenticatedImages = proxiesGitHubImages(prMetadata);
   const [annotating, setAnnotating] = useState<{ commentId: string; author: string; body: string; anchorEl: HTMLElement } | null>(null);
   const handleAnnotate = useCallback<AnnotateFn>((commentId, author, body, anchorEl) => {
@@ -455,6 +457,8 @@ export const PRCommentsTab: React.FC<PRCommentsTabProps> = React.memo(({ context
                   onToggleCollapse={() => toggleCollapsed(id)}
                   onAnnotate={handleAnnotate}
                   authenticatedImages={authenticatedImages}
+                  onSetResolved={onSetPRThreadResolved}
+                  busy={prThreadBusy}
                 />
               );
             }
@@ -550,7 +554,7 @@ export const PRCommentsTab: React.FC<PRCommentsTabProps> = React.memo(({ context
 // Subcomponents
 // ---------------------------------------------------------------------------
 
-function ThreadCard({ thread, isSelected, isCollapsed, onSelect, onToggleCollapse, onAnnotate, authenticatedImages }: {
+function ThreadCard({ thread, isSelected, isCollapsed, onSelect, onToggleCollapse, onAnnotate, authenticatedImages, onSetResolved, busy }: {
   thread: PRReviewThread;
   isSelected: boolean;
   isCollapsed: boolean;
@@ -559,6 +563,8 @@ function ThreadCard({ thread, isSelected, isCollapsed, onSelect, onToggleCollaps
   onAnnotate: AnnotateFn;
   /** GitHub attachment images load through the proxy (`proxiesGitHubImages`). */
   authenticatedImages: boolean;
+  onSetResolved?: (threadId: string, resolved: boolean) => void;
+  busy?: PRThreadBusy;
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const first = thread.comments[0];
@@ -693,6 +699,7 @@ function ThreadCard({ thread, isSelected, isCollapsed, onSelect, onToggleCollaps
             commentId={thread.id}
             author={first.author || 'unknown'}
             onAnnotate={onAnnotate}
+            resolve={onSetResolved && <ResolveThreadButton thread={thread} busy={busy} onSetResolved={onSetResolved} className="text-[10px]" />}
           />
         </>
       )}
@@ -700,12 +707,14 @@ function ThreadCard({ thread, isSelected, isCollapsed, onSelect, onToggleCollaps
   );
 }
 
-function PRCommentLinkActions({ url, body, commentId, author, onAnnotate }: {
+function PRCommentLinkActions({ url, body, commentId, author, onAnnotate, resolve }: {
   url?: string;
   body: string;
   commentId?: string;
   author?: string;
   onAnnotate?: AnnotateFn;
+  /** A thread's Resolve / Unresolve button. */
+  resolve?: React.ReactNode;
 }) {
   if (!url && !body && !onAnnotate) return null;
 
@@ -723,6 +732,7 @@ function PRCommentLinkActions({ url, body, commentId, author, onAnnotate }: {
           Annotate
         </button>
       )}
+      {resolve}
       {url && (
         <a
           href={url}

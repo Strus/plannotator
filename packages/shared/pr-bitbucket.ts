@@ -634,6 +634,14 @@ export function mapBitbucketComments(raw: BbComment[], patch?: string): Pick<PRC
   return { comments, reviewThreads: [...threads.values()] };
 }
 
+/** Resolve or reopen one inline thread (its root comment's id), as Bitbucket's "Resolve" button does. */
+export async function setBbThreadResolved(runtime: PRRuntime, ref: BitbucketPRRef, threadId: string, resolved: boolean): Promise<void> {
+  const ctx = await context(runtime);
+  const path = `${refRepoPath(ref)}/pullrequests/${ref.number}/comments/${encodeURIComponent(threadId)}/resolve`;
+  const res = await bbRequest(ctx, path, { method: resolved ? "POST" : "DELETE" });
+  if (!res.ok) throw await failure(res, resolved ? "resolve the thread" : "reopen the thread");
+}
+
 export async function fetchBbPRContext(runtime: PRRuntime, ref: BitbucketPRRef): Promise<PRContext> {
   const ctx = await context(runtime);
   const prPath = `${refRepoPath(ref)}/pullrequests/${ref.number}`;

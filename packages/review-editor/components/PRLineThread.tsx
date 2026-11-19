@@ -1,15 +1,16 @@
 /**
- * A PR's existing review thread, drawn in the diff under the line it is about (a `HostLineNote`). Read-only: to reply
- * or resolve, it links to the forge. Never an annotation: nothing here is counted, exported or posted with the
- * reviewer's own comments.
+ * A PR's existing review thread, drawn in the diff under the line it is about (a `HostLineNote`). It can be resolved
+ * or unresolved here, as on the forge; to reply, it links to the forge. Never an annotation: nothing here is counted,
+ * exported or posted with the reviewer's own comments.
  *
  * An open thread shows every comment, or its first and last with "N more" between; a long comment stops after a few
  * lines with "Show all". A resolved thread, one where only bots speak, and a thread on a whole file start as one line
  * that opens in place. A comment the forge hides is one line too.
  */
 import React, { useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { ChevronDown, ChevronRight, ExternalLink, MessageSquare } from 'lucide-react';
-import type { PRThreadComment } from '@plannotator/shared/pr-types';
+import { CircleCheck, ChevronDown, ChevronRight, ExternalLink, MessageSquare, RotateCcw } from 'lucide-react';
+import type { PRReviewThread, PRThreadComment } from '@plannotator/shared/pr-types';
+import { usePRThreadBusy, type PRThreadBusy } from '../hooks/usePRThreadResolve';
 import { Avatar } from './Avatar';
 import { MarkdownBody } from './MarkdownBody';
 import { BotTag, formatRelativeTime } from './prCommentBits';
@@ -27,6 +28,11 @@ export class PRThreadMemory {
   }
   set(key: string, value: boolean): void {
     this.kept.set(key, value);
+    for (const listener of this.listeners) listener();
+  }
+  /** Back to how the thread starts for what it shows now. */
+  forget(key: string): void {
+    if (!this.kept.delete(key)) return;
     for (const listener of this.listeners) listener();
   }
   subscribe = (listener: () => void): (() => void) => {
@@ -48,6 +54,42 @@ export interface PRLineThreadProps {
   forge: string;
   /** GitHub attachment images load through the proxy (`proxiesGitHubImages`). */
   authenticatedImages: boolean;
+  /** Resolve or unresolve the thread on the forge. Absent: no button. */
+  onSetResolved?: (threadId: string, resolved: boolean) => void;
+  busy?: PRThreadBusy;
+}
+
+/** The signed-in person may flip this thread's resolved state, as far as the forge says. */
+export function canToggleResolved(thread: PRReviewThread): boolean {
+  return thread.isResolved ? thread.viewerCanUnresolve !== false : thread.viewerCanResolve !== false;
+}
+
+/** "Resolve conversation" / "Unresolve conversation", as on GitHub. */
+export function ResolveThreadButton({ thread, busy, onSetResolved, className = 'text-[11px]' }: {
+  thread: PRReviewThread;
+  busy?: PRThreadBusy;
+  onSetResolved: (threadId: string, resolved: boolean) => void;
+  className?: string;
+}) {
+  const pending = usePRThreadBusy(busy, thread.id);
+  if (!canToggleResolved(thread)) return null;
+  const Icon = thread.isResolved ? RotateCcw : CircleCheck;
+  return (
+    <button
+      type="button"
+      className={`inline-flex items-center gap-1 shrink-0 rounded px-1.5 py-0.5 text-muted-foreground hover:text-foreground hover:bg-muted/40 disabled:opacity-50 disabled:pointer-events-none transition-colors ${className}`}
+      disabled={pending}
+      aria-busy={pending || undefined}
+      data-pr-thread-resolve={thread.isResolved ? 'unresolve' : 'resolve'}
+      onClick={(event) => {
+        event.stopPropagation();
+        onSetResolved(thread.id, !thread.isResolved);
+      }}
+    >
+      <Icon aria-hidden="true" size={12} />
+      {thread.isResolved ? 'Unresolve conversation' : 'Resolve conversation'}
+    </button>
+  );
 }
 
 const firstLine = (text: string) =>
@@ -164,7 +206,7 @@ function FoldedLine({ placed, forge }: { placed: PlacedPRThread; forge: string }
   );
 }
 
-export function PRLineThread({ placed, memory, forge, authenticatedImages }: PRLineThreadProps) {
+export function PRLineThread({ placed, memory, forge, authenticatedImages, onSetResolved, busy }: PRLineThreadProps) {
   const { thread, where } = placed;
   const why = prThreadFoldedWhy(thread);
   const [open, setOpen] = useRemembered(memory, `open:${thread.id}`, why === null && where !== 'file');
@@ -202,7 +244,7 @@ export function PRLineThread({ placed, memory, forge, authenticatedImages }: PRL
       href={first.url}
       target="_blank"
       rel="noreferrer noopener"
-      title={`Open on ${forge} to reply or resolve`}
+      title={`Open on ${forge} to reply`}
       aria-label={`Open this thread on ${forge}`}
     >
       <ExternalLink aria-hidden="true" size={13} />
@@ -226,6 +268,20 @@ export function PRLineThread({ placed, memory, forge, authenticatedImages }: PRL
         {whereWords && <span>{whereWords}</span>}
         {!whereWords && thread.isOutdated && <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-warning/15 text-warning">Outdated</span>}
         {span && <span>{span}</span>}
+        {onSetResolved && (
+          <ResolveThreadButton
+            thread={thread}
+            busy={busy}
+            className="ml-auto -mr-1 text-[11px]"
+            onSetResolved={(threadId, resolved) => {
+              // As on GitHub, a resolved conversation folds away (and opens again if the forge refuses); an
+              // unresolved one stays open.
+              if (resolved) memory.forget(`open:${threadId}`);
+              else setOpen(true);
+              onSetResolved(threadId, resolved);
+            }}
+          />
+        )}
       </div>
       <div className="divide-y divide-border/30">
         {shown.map((comment, index) => (

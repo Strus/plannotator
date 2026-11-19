@@ -1102,6 +1102,13 @@ const glMrUrl = (ref: GlMRRef) => `https://${ref.host}/${ref.projectPath}/-/merg
 
 const glFailure = (result: CommandResult) => result.stderr.trim() || result.stdout.trim() || `exit code ${result.exitCode}`;
 
+/** Resolve or unresolve one MR discussion (a review thread's id), as GitLab's "Resolve thread" button does. */
+export async function setGlDiscussionResolved(runtime: PRRuntime, ref: GlMRRef, discussionId: string, resolved: boolean): Promise<void> {
+  const path = `projects/${encodeProject(ref.projectPath)}/merge_requests/${ref.iid}/discussions/${encodeURIComponent(discussionId)}?resolved=${resolved}`;
+  const result = await runtime.runCommand("glab", apiArgs(ref.host, path, ["--method", "PUT"]));
+  if (result.exitCode !== 0) throw new Error(`Couldn't ${resolved ? "resolve" : "unresolve"} the thread: ${glFailure(result)}`);
+}
+
 /**
  * The person's own note on the MR that starts with `input.marker`, edited in place (PUT); else a new note. Found on
  * the forge every time: the newest non-system note of the signed-in account that starts with the marker. One gone by

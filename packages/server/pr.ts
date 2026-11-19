@@ -41,6 +41,7 @@ import {
   fetchPRFileBytes as fetchPRFileBytesCore,
   fetchPRTree as fetchPRTreeCore,
   submitPRReview as submitPRReviewCore,
+  setPRThreadResolved as setPRThreadResolvedCore,
   fetchPRViewedFiles as fetchPRViewedFilesCore,
   markPRFilesViewed as markPRFilesViewedCore,
   fetchPRStack as fetchPRStackCore,
@@ -48,7 +49,7 @@ import {
 } from "@plannotator/shared/pr-provider";
 
 export type { PRAuthResult, PRRef, PRMetadata, PRContext, PRReviewFileComment, PRReviewFileLevelComment, PRReviewSubmissionResult, PRStackTree, PRListItem } from "@plannotator/shared/pr-types";
-export { prRefFromMetadata, isSameProject, getPlatformLabel, getMRLabel, getMRNumberLabel, getDisplayRepo, getCliName, getCliInstallUrl, getPRNumber, getPRPlatformCapabilities, getPRHeadFetchSpec, getPRCloneCommand } from "@plannotator/shared/pr-types";
+export { parsePRThreadResolveRequest, prRefFromMetadata, isSameProject, getPlatformLabel, getMRLabel, getMRNumberLabel, getDisplayRepo, getCliName, getCliInstallUrl, getPRNumber, getPRPlatformCapabilities, getPRHeadFetchSpec, getPRCloneCommand } from "@plannotator/shared/pr-types";
 export type { GithubPRMetadata } from "@plannotator/shared/pr-types";
 
 const bunCommandRuntime: PRRuntime = {
@@ -185,6 +186,10 @@ export function submitPRReview(
   fileLevelComments: PRReviewFileLevelComment[] = [],
 ): Promise<PRReviewSubmissionResult> {
   return submitPRReviewCore(runtime, ref, headSha, action, body, fileComments, fileLevelComments);
+}
+
+export function setPRThreadResolved(ref: PRRef, threadId: string, resolved: boolean): Promise<void> {
+  return setPRThreadResolvedCore(runtime, ref, threadId, resolved);
 }
 
 export function fetchPRViewedFiles(

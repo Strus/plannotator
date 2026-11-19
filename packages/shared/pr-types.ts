@@ -234,6 +234,12 @@ export interface PRReviewThread {
   diffSide: 'LEFT' | 'RIGHT' | null;
   /** The side of `startLine` (GitHub), when the forge says: a range can start on a removed line and end on an added one. */
   startDiffSide?: 'LEFT' | 'RIGHT' | null;
+  /**
+   * The signed-in person may resolve / unresolve this thread (GitHub says; `false` hides that button). Absent: the
+   * forge does not say, so the button shows and the forge's answer decides.
+   */
+  viewerCanResolve?: boolean;
+  viewerCanUnresolve?: boolean;
   comments: PRThreadComment[];
 }
 
@@ -283,6 +289,23 @@ export type PRReviewAction = "approve" | "comment" | "request_changes";
 /** Read the untrusted `action` field of a review request; null when invalid. */
 export function parsePRReviewAction(value: unknown): PRReviewAction | null {
   return value === "approve" || value === "comment" || value === "request_changes" ? value : null;
+}
+
+/** `POST /api/pr-thread-resolve`: which thread of which PR, resolved or not. */
+export interface PRThreadResolveRequest {
+  threadId: string;
+  resolved: boolean;
+  /** The PR the page drew the thread for; the server refuses when it is reviewing another one now. */
+  prUrl: string;
+}
+
+/** Read an untrusted thread-resolve body; null when invalid. */
+export function parsePRThreadResolveRequest(value: unknown): PRThreadResolveRequest | null {
+  if (typeof value !== "object" || value === null) return null;
+  const { threadId, resolved, prUrl } = value as Record<string, unknown>;
+  if (typeof threadId !== "string" || threadId === "" || threadId.length > 256) return null;
+  if (typeof resolved !== "boolean" || typeof prUrl !== "string") return null;
+  return { threadId, resolved, prUrl };
 }
 
 /**

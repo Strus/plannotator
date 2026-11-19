@@ -431,6 +431,8 @@ query($owner: String!, $repo: String!, $number: Int!, $withComments: Boolean = t
           path
           diffSide
           startDiffSide
+          viewerCanResolve
+          viewerCanUnresolve
           comments(first: 50) {
             pageInfo { hasNextPage endCursor }
             nodes {
@@ -565,8 +567,30 @@ function threadOf(t: any, comments: PRThreadComment[]): PRReviewThread {
     startLine: typeof t.startLine === 'number' ? t.startLine : null,
     diffSide: t.diffSide === 'LEFT' || t.diffSide === 'RIGHT' ? t.diffSide : null,
     ...(t.startDiffSide === 'LEFT' || t.startDiffSide === 'RIGHT' ? { startDiffSide: t.startDiffSide } : {}),
+    ...(typeof t.viewerCanResolve === 'boolean' ? { viewerCanResolve: t.viewerCanResolve } : {}),
+    ...(typeof t.viewerCanUnresolve === 'boolean' ? { viewerCanUnresolve: t.viewerCanUnresolve } : {}),
     comments,
   };
+}
+
+/** Resolve or unresolve one review thread (its GraphQL node id), as GitHub's "Resolve conversation" button does. */
+export async function setGhThreadResolved(runtime: PRRuntime, ref: GhPRRef, threadId: string, resolved: boolean): Promise<void> {
+  const mutation = resolved ? "resolveReviewThread" : "unresolveReviewThread";
+  const result = await runtime.runCommand("gh", hostnameArgs(ref.host, [
+    "api", "graphql",
+    "-f", `query=mutation($id: ID!) { ${mutation}(input: { threadId: $id }) { thread { id isResolved } } }`,
+    "-f", `id=${threadId}`,
+  ]));
+  let parsed: any = null;
+  try {
+    parsed = JSON.parse(result.stdout);
+  } catch {
+    // gh printed no JSON: its stderr says why.
+  }
+  const graphqlError = parsed?.errors?.[0]?.message;
+  if (result.exitCode !== 0 || graphqlError) {
+    throw new Error(`Couldn't ${resolved ? "resolve" : "unresolve"} the thread: ${graphqlError || result.stderr.trim() || `exit code ${result.exitCode}`}`);
+  }
 }
 
 // --- Requested reviewers ---

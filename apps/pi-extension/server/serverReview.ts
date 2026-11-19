@@ -56,6 +56,7 @@ import {
 	type PRListItem,
 	type PRRef,
 	type PRReviewFileComment,
+	parsePRThreadResolveRequest,
 	prRefFromMetadata,
 } from "../generated/pr-types.ts";
 import {
@@ -191,6 +192,7 @@ import {
 	fetchPRViewedFiles,
 	getPRUser,
 	markPRFilesViewed,
+	setPRThreadResolved,
 	parseFileLevelComments,
 	parsePRReviewAction,
 	parsePRUrl,
@@ -3537,6 +3539,34 @@ export async function startReviewServer(options: {
 				const message = err instanceof Error ? err.message : "Failed to submit PR review";
 				console.error(`[pr-action] Failed: ${message}`);
 				json(res, { error: message }, 500);
+			}
+		} else if (url.pathname === "/api/pr-thread-resolve" && req.method === "POST") {
+			if (!isPRMode || !prMeta || !prRef) {
+				json(res, { error: "Not in PR mode" }, 400);
+				return;
+			}
+			try {
+				const body = await parseBody(req);
+				if (checkServerSession(body, serverSession) === "mismatch") {
+					json(res, serverSessionMismatchBody(), 409);
+					return;
+				}
+				const request = parsePRThreadResolveRequest(body);
+				if (!request) {
+					json(res, { error: "threadId, resolved and prUrl are required" }, 400);
+					return;
+				}
+				if (request.prUrl !== prMeta.url) {
+					json(res, { error: "This review is on another pull request now" }, 409);
+					return;
+				}
+				await setPRThreadResolved(prRef, request.threadId, request.resolved);
+				prContextLive.refreshAfterWrite(prMeta.url, prRef);
+				json(res, { ok: true });
+			} catch (err) {
+				const message = err instanceof Error ? err.message : "Failed to update the thread";
+				console.error("[plannotator] /api/pr-thread-resolve error:", message);
+				json(res, { error: message }, 502);
 			}
 		} else if (url.pathname === "/api/pr-viewed" && req.method === "POST") {
 			if (!isPRMode || !prMeta || !prRef) {

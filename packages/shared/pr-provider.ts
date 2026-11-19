@@ -16,10 +16,10 @@
  * browser-safe.
  */
 
-import { checkGhAuth, getGhUser, fetchGhPR, fetchGhPRContext, fetchGhRequestedReviewers, fetchGhPRFileContent, fetchGhPRFileBytes, submitGhPRReview, foldFileLevelComments, fetchGhPRViewedFiles, markGhFilesViewed, fetchGhPRStack, fetchGhPRList, fetchGhPRTree, upsertGhDescriptionSection, upsertGhMarkedComment } from "./pr-github";
-import { checkGlAuth, getGlUser, fetchGlMR, fetchGlMRContext, fetchGlFileContent, fetchGlFileBytes, submitGlMRReview, fetchGlTree, upsertGlDescriptionSection, upsertGlMarkedNote } from "./pr-gitlab";
+import { checkGhAuth, getGhUser, fetchGhPR, fetchGhPRContext, fetchGhRequestedReviewers, fetchGhPRFileContent, fetchGhPRFileBytes, submitGhPRReview, setGhThreadResolved, foldFileLevelComments, fetchGhPRViewedFiles, markGhFilesViewed, fetchGhPRStack, fetchGhPRList, fetchGhPRTree, upsertGhDescriptionSection, upsertGhMarkedComment } from "./pr-github";
+import { checkGlAuth, getGlUser, fetchGlMR, fetchGlMRContext, fetchGlFileContent, fetchGlFileBytes, submitGlMRReview, setGlDiscussionResolved, fetchGlTree, upsertGlDescriptionSection, upsertGlMarkedNote } from "./pr-gitlab";
 import { fetchGlMRList, fetchGlMRStack } from "./pr-gitlab-stack";
-import { checkBbAuth, getBbUser, fetchBbPR, fetchBbPRContext, fetchBbFileContent, fetchBbFileBytes, submitBbPRReview, fetchBbPRList, fetchBbTree } from "./pr-bitbucket";
+import { checkBbAuth, getBbUser, fetchBbPR, fetchBbPRContext, fetchBbFileContent, fetchBbFileBytes, submitBbPRReview, setBbThreadResolved, fetchBbPRList, fetchBbTree } from "./pr-bitbucket";
 import { ensureGhPRAccess, ghScopedRuntime } from "./pr-github-account";
 import type { PRMarkedCommentInput, PRMarkedResult, PRMarkedSectionInput } from "./pr-marked";
 import type { BitbucketPRRef, GithubPRRef, GitlabMRRef, Platform, PRAuthResult, PRFileBytesResult, PRRuntime, PRRef, PRMetadata, PRContext, PRReviewFileComment, PRReviewFileLevelComment, PRReviewAction, PRReviewSubmissionResult, PRStackTree, PRListItem, PRTreeResult } from "./pr-types";
@@ -56,6 +56,8 @@ export interface PRProvider<R extends PRRef = PRRef> {
     fileComments: PRReviewFileComment[],
     fileLevelComments: PRReviewFileLevelComment[],
   ): Promise<PRReviewSubmissionResult>;
+  /** Resolve (or unresolve) one of the PR's review threads, by its `PRReviewThread.id`. Throws the forge's refusal. */
+  setThreadResolved(runtime: PRRuntime, ref: R, threadId: string, resolved: boolean): Promise<void>;
   /** Server-side per-file viewed state. Absent: no viewed sync. */
   fetchViewedFiles?(runtime: PRRuntime, ref: R): Promise<Record<string, boolean>>;
   markFilesViewed?(runtime: PRRuntime, ref: R, prNodeId: string, filePaths: string[], viewed: boolean): Promise<void>;
@@ -87,6 +89,7 @@ const githubProvider: PRProvider<GithubPRRef> = {
   fetchFileContent: fetchGhPRFileContent,
   fetchFileBytes: fetchGhPRFileBytes,
   submitReview: submitGhPRReview,
+  setThreadResolved: setGhThreadResolved,
   fetchViewedFiles: fetchGhPRViewedFiles,
   markFilesViewed: markGhFilesViewed,
   fetchStack: fetchGhPRStack,
@@ -109,6 +112,7 @@ const gitlabProvider: PRProvider<GitlabMRRef> = {
   upsertMarkedComment: upsertGlMarkedNote,
   upsertDescriptionSection: upsertGlDescriptionSection,
   submitReview: submitGlMRReview,
+  setThreadResolved: setGlDiscussionResolved,
 };
 
 const bitbucketProvider: PRProvider<BitbucketPRRef> = {
@@ -120,6 +124,7 @@ const bitbucketProvider: PRProvider<BitbucketPRRef> = {
   fetchFileBytes: fetchBbFileBytes,
   submitReview: (runtime, ref, headSha, action, body, fileComments, fileLevelComments) =>
     submitBbPRReview(runtime, ref, headSha, action, foldFileLevelComments(body, fileLevelComments), fileComments),
+  setThreadResolved: setBbThreadResolved,
   fetchList: fetchBbPRList,
   fetchTree: fetchBbTree,
 };
@@ -222,6 +227,11 @@ export async function submitPRReview(
   fileLevelComments: PRReviewFileLevelComment[] = [],
 ): Promise<PRReviewSubmissionResult> {
   return getPRProvider(ref).submitReview(runtimeFor(runtime, ref), ref, headSha, action, body, fileComments, fileLevelComments);
+}
+
+/** Resolve or unresolve one review thread on the platform. */
+export async function setPRThreadResolved(runtime: PRRuntime, ref: PRRef, threadId: string, resolved: boolean): Promise<void> {
+  return getPRProvider(ref).setThreadResolved(runtimeFor(runtime, ref), ref, threadId, resolved);
 }
 
 /**

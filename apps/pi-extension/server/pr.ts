@@ -33,6 +33,7 @@ import {
 	getUser as getUserCore,
 	markPRFilesViewed as markPRFilesViewedCore,
 	submitPRReview as submitPRReviewCore,
+	setPRThreadResolved as setPRThreadResolvedCore,
 } from "../generated/pr-provider.ts";
 
 const nodeCommandRuntime: PRRuntime = {
@@ -168,6 +169,10 @@ export function submitPRReview(
 		fileComments,
 		fileLevelComments,
 	);
+}
+
+export function setPRThreadResolved(ref: PRRef, threadId: string, resolved: boolean): Promise<void> {
+	return setPRThreadResolvedCore(prRuntime, ref, threadId, resolved);
 }
 
 export function fetchPRViewedFiles(ref: PRRef): Promise<Record<string, boolean>> {

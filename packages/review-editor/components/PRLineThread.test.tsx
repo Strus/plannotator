@@ -1,7 +1,8 @@
 /**
  * A PR thread drawn on the diff. What regresses: a resolved thread drawn open and taking the diff's space; a thread
  * the reviewer opened folding again when the diff redraws its line (scrolling back, a new read); a long thread losing
- * its last comment; a hidden comment's words shown without asking; a thread with no way to reply on the forge.
+ * its last comment; a hidden comment's words shown without asking; a thread with no way to reply on the forge; a
+ * Resolve button for someone the forge would refuse.
  */
 import { describe, expect, test } from 'bun:test';
 import React from 'react';
@@ -56,6 +57,20 @@ describe('PRLineThread', () => {
     expect(html).toContain('last');
     expect(html).not.toContain('>three<');
     expect(html).toContain('3 more');
+  });
+
+  test('an open thread offers Resolve, Unresolve once resolved, and neither when the forge says the viewer may not', () => {
+    const resolvable = (over: Partial<PRReviewThread>) => {
+      const memory = new PRThreadMemory();
+      memory.set('open:T1', true);
+      return renderToStaticMarkup(
+        <PRLineThread placed={placed(over)} memory={memory} forge="GitHub" authenticatedImages={false} onSetResolved={() => {}} />,
+      );
+    };
+    expect(resolvable({})).toContain('data-pr-thread-resolve="resolve"');
+    expect(resolvable({ isResolved: true })).toContain('data-pr-thread-resolve="unresolve"');
+    expect(resolvable({ viewerCanResolve: false })).not.toContain('data-pr-thread-resolve=');
+    expect(resolvable({ isResolved: true, viewerCanUnresolve: false })).not.toContain('data-pr-thread-resolve=');
   });
 
   test('a comment the forge hides is not shown until asked', () => {

@@ -8,6 +8,7 @@ import type { AIChatEntry } from '../hooks/useAIChat';
 import type { ReviewSearchMatch } from '../utils/reviewSearch';
 import type { PRMetadata, PRContext } from '@plannotator/shared/pr-types';
 import type { PRArtifact } from '../utils/prArtifacts';
+import type { PRThreadBusy } from '../hooks/usePRThreadResolve';
 import type { PRDiffScope } from '@plannotator/shared/pr-stack';
 import type { SemanticDiffChange } from '@plannotator/shared/semantic-diff-types';
 import type { FeedbackDiffContext } from '../utils/exportFeedback';
@@ -292,6 +293,9 @@ export interface ReviewState {
   // PR
   prMetadata: PRMetadata | null;
   prContext: PRContext | null;
+  /** Resolve or unresolve one of the PR's review threads on the forge (`usePRThreadResolve`). */
+  onSetPRThreadResolved: (threadId: string, resolved: boolean) => void;
+  prThreadBusy: PRThreadBusy;
   /** Viewable attachments harvested from the current hosted PR/MR context. */
   prArtifacts: readonly PRArtifact[];
   openPRArtifact: (artifactId: string) => void;
