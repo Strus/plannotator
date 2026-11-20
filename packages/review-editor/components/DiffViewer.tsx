@@ -1077,6 +1077,8 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
   const cursorStops = useMemo(() => listCursorStops(cursorLines, cursorAnnotations), [cursorLines, cursorAnnotations]);
   const cursorActive = lineCursor && !collapsed && !markdownPreviewEnabled && !bodyOverride;
   const lastCursorStopRef = useRef<CursorStop | null>(null);
+  // Until the next pointer press, which hands the selection back to the mouse.
+  const [cursorShown, setCursorShown] = useState(false);
   const cursorLive = useRef({ cursorStops, pendingSelection, selectedAnnotationId, annotations });
   cursorLive.current = { cursorStops, pendingSelection, selectedAnnotationId, annotations };
 
@@ -1109,6 +1111,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
 
   const paintCursorStop = useCallback((stop: CursorStop) => {
     lastCursorStopRef.current = stop;
+    setCursorShown(true);
     const live = cursorLive.current;
     if (stop.kind === 'line') {
       if (live.selectedAnnotationId) onSelectAnnotation(null);
@@ -1345,7 +1348,11 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
   );
 
   return (
-    <div className="relative h-full flex flex-col">
+    <div
+      className="relative h-full flex flex-col"
+      data-line-cursor-shown={cursorShown || undefined}
+      onPointerDownCapture={cursorShown ? () => setCursorShown(false) : undefined}
+    >
       <FileHeader
         filePath={filePath}
         patch={patch}

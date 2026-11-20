@@ -178,7 +178,7 @@ export function buildLineBgOverrides(intensity: DiffLineBgIntensity, mode: 'ligh
 const SELECTION_BAR_PLUS_CSS = `[data-gutter-utility-slot] { display: var(--review-selection-plus, flex); }`;
 
 export const ANNOTATED_LINE_TINT_CSS = `
-  [data-selected-line] { --mix-selection-light: 92% !important; --mix-selection-dark: 88% !important; }
+  [data-selected-line] { --mix-selection-light: var(--review-selection-mix-light, 92%) !important; --mix-selection-dark: var(--review-selection-mix-dark, 88%) !important; }
   :is([data-line-annotation], [data-gutter-buffer='annotation'])[data-selected-line] { --mix-selection-light: 100% !important; --mix-selection-dark: 100% !important; }
 `;
 

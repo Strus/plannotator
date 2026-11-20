@@ -13,8 +13,9 @@
  * previous one not landing on its first or last line, `I` opening the
  * composer on the wrong lines or `Enter` on a comment not editing that
  * comment, `Ctrl+D` / `Ctrl+U` not moving by half the view or running past
- * a file's edge, and the keys acting while the panel is not active or while
- * the composer is open.
+ * a file's edge, the keys acting while the panel is not active or while
+ * the composer is open, and the cursor line left at the light tint of a line
+ * selected by hand (so it can hardly be seen).
  *
  * DOM-gated (DOM_TESTS=1) and run by .github/workflows/test.yml's
  * "Run diff-renderer DOM tests (isolated, real @pierre/diffs)" step.
@@ -247,6 +248,17 @@ describe.if(hasDom)('DiffViewer line cursor (DOM, real Pierre)', () => {
     expect(at()).toBe('comment:c1');
     expect(press('Enter').defaultPrevented).toBe(true);
     expect(composerCalls).toEqual(['new additions 11-11 (keyboard)', 'edit c1 (keyboard)']);
+  });
+
+  test('the cursor line is drawn at the full selection tint until a pointer press', async () => {
+    await mount();
+    const view = () => host!.querySelector('[data-line-cursor-shown]');
+    expect(view()).toBeNull();
+    press('j');
+    expect(at()).toBe('+10');
+    expect(view()).not.toBeNull();
+    act(() => { view()!.dispatchEvent(new Event('pointerdown', { bubbles: true })); });
+    expect(view()).toBeNull();
   });
 
   test('a file entered with K from the next one starts on its last line', async () => {

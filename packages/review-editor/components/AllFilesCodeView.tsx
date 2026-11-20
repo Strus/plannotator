@@ -3791,6 +3791,8 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
   // else a selected comment); a file's stops come from its CodeView item, so
   // a file off screen still has them.
   const lastCursorRef = useRef<{ itemId: string; stop: CursorStop } | null>(null);
+  // Until the next pointer press, which hands the selection back to the mouse.
+  const [cursorShown, setCursorShown] = useState(false);
   const cursorStopsOf = useStableCallback((itemId: string): CursorStop[] | null => {
     const handle = viewerRef.current;
     const item = handle?.getItem(itemId);
@@ -3848,6 +3850,7 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
 
   const paintCursorStop = useStableCallback((itemId: string, stop: CursorStop) => {
     lastCursorRef.current = { itemId, stop };
+    setCursorShown(true);
     const filePath = itemIdToFilePath.get(itemId);
     if (!filePath) return;
     if (stop.kind === 'line') {
@@ -4666,6 +4669,8 @@ export const AllFilesCodeView: React.FC<AllFilesCodeViewProps> = ({
       // The hidden trailing row's room, given back (flushFiles): the next file's header meets the last code row.
       style={flushesFiles && trailingUnread ? { marginBottom: -separatorHeight } : undefined}
       data-history-owner={editSession.editingItemId ? 'edit-session' : undefined}
+      data-line-cursor-shown={cursorShown || undefined}
+      onPointerDownCapture={cursorShown ? () => setCursorShown(false) : undefined}
       onPointerMove={markdownPreview ? (event) => { pointerRef.current = { x: event.clientX, y: event.clientY }; } : undefined}
       onPointerLeave={markdownPreview ? () => { pointerRef.current = null; } : undefined}
     >

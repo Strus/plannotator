@@ -335,6 +335,17 @@ describe.if(hasDom)('AllFilesCodeView line cursor (DOM, real Pierre rows)', () =
     expect(walk('k', 4)).toEqual(['+2', '+1', 'comment:on-b', '+2']);
   });
 
+  test('the cursor line is drawn at the full selection tint until a pointer press', async () => {
+    await mount();
+    const view = () => host!.querySelector('[data-line-cursor-shown]');
+    expect(view()).toBeNull();
+    press('j');
+    expect(at()).toBe('+1');
+    expect(view()).not.toBeNull();
+    act(() => { view()!.dispatchEvent(new Event('pointerdown', { bubbles: true })); });
+    expect(view()).toBeNull();
+  });
+
   test('Ctrl+D / Ctrl+U move half the view, carrying on across files as one diff', async () => {
     await mount(); // a 200 px view of 30 px rows: three stops a half page
     press('j');

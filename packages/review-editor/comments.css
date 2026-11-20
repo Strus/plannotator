@@ -390,6 +390,8 @@
 @media (pointer: coarse) { .review-selpop-btn { height: 44px; padding: 0 12px; } }
 /* The diff's + mark offers the same thing as Comment: gone while the bar is open. Custom properties reach into the diff's shadow root (usePierreTheme). */
 html:has([data-selection-chooser]) { --review-selection-plus: none; }
+/* The J / K line cursor is drawn as the selected line: Pierre's own tint, so it stands out from a line selected by hand. */
+[data-line-cursor-shown] { --review-selection-mix-light: 82%; --review-selection-mix-dark: 75%; }
 
 .review-toolbar-btn {
   display: flex;
