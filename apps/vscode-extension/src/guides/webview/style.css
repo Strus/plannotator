@@ -31,6 +31,8 @@
 }
 
 * { box-sizing: border-box; }
+/* No ligatures in any font (as packages/ui/theme.css). */
+*, *::before, *::after { font-variant-ligatures: none !important; }
 html, body { margin: 0; padding: 0; }
 body {
   color: var(--vscode-editor-foreground);

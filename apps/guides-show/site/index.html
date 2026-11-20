@@ -27,6 +27,8 @@
     --mono:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
   }
   *{box-sizing:border-box}
+  /* No ligatures in any font (as packages/ui/theme.css). */
+  *,*::before,*::after{font-variant-ligatures:none!important}
   html{-webkit-text-size-adjust:100%}
   body{margin:0;background:var(--bg);color:var(--text);font:15px/1.65 var(--sans);font-feature-settings:"cv11","ss01"}
   /* On desktop Linux (pn-os-linux, set by the script below), Inter's cv11 and ss01 are named for Inter only: as

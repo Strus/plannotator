@@ -830,6 +830,14 @@ body {
   font-feature-settings: "ss01", "ss02", "cv01";
 }
 
+/* No ligatures in any font: `=>`, `!=` and `fi` draw as the characters typed.
+ * Set on every element with !important because a `font:` shorthand resets
+ * font-variant-ligatures to normal on the element that uses it. Shadow roots
+ * (Pierre's diffs) inherit the value from their host. */
+*, *::before, *::after {
+  font-variant-ligatures: none !important;
+}
+
 :root.pn-os-linux body {
   font-feature-settings: normal;
   font-variant-alternates: styleset(pn-inter) character-variant(pn-inter-one);

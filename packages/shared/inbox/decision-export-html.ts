@@ -44,7 +44,7 @@ const STYLE = `
 --sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Inter,sans-serif;--mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;
 --col:680px;--tick:36px;--in:36px;color-scheme:light dark}
 @media (prefers-color-scheme:dark){:root{--bg:#141416;--fg:#ececef;--fg2:#a3a3ab;--fg3:#87878f;--line:#2a2a2f;--hover:#1d1d21;--accent:#a294ff;--accent-soft:rgba(162,148,255,.18)}}
-*,*::before,*::after{box-sizing:border-box}
+*,*::before,*::after{box-sizing:border-box;font-variant-ligatures:none!important}
 html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 @media (prefers-reduced-motion:no-preference){html{scroll-behavior:smooth}}
 body{margin:0;background:var(--bg);color:var(--fg);font:400 17px/1.55 var(--sans);-webkit-font-smoothing:antialiased;font-feature-settings:"kern"}
